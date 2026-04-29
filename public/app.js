@@ -6,8 +6,8 @@ const state = {
   auctions: null,
   dollarQuotes: null,
   macro: null,
+  census: null,
   risk: null,
-  historyRows: [],
   selectedMarket: "arg_stocks",
   selectedExplorer: "arg_bonds",
   errors: []
@@ -107,8 +107,9 @@ const timeFormat = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   bindEvents();
+  initRoute();
+  initChartTooltip();
   renderGuide();
-  renderBymaSection();
   refreshIcons();
   loadAllData();
 });
@@ -141,6 +142,7 @@ function updateThemeButton(theme) {
 function bindEvents() {
   $("#themeToggle")?.addEventListener("click", toggleTheme);
   $("#refreshButton").addEventListener("click", loadAllData);
+  window.addEventListener("hashchange", applyRoute);
 
   $$("[data-help]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -163,11 +165,6 @@ function bindEvents() {
     });
   });
 
-  $("#historySelect").addEventListener("change", async (event) => {
-    await loadHistory(event.target.value);
-    renderHistory();
-  });
-
   $("#explorerSelect").addEventListener("change", async (event) => {
     state.selectedExplorer = event.target.value;
     await ensureMarketData(state.selectedExplorer);
@@ -175,6 +172,63 @@ function bindEvents() {
   });
 
   $("#explorerSearch").addEventListener("input", renderExplorer);
+}
+
+function initRoute() {
+  if (!location.hash) history.replaceState(null, "", "#inicio");
+  applyRoute();
+}
+
+function applyRoute() {
+  const validPages = new Set($$(".page-section").map((section) => section.id));
+  const page = validPages.has(location.hash.slice(1)) ? location.hash.slice(1) : "inicio";
+
+  $$(".page-section").forEach((section) => {
+    const isActive = section.id === page;
+    section.hidden = !isActive;
+    section.classList.toggle("active-page", isActive);
+  });
+
+  $$(".nav-links a, .landing-card").forEach((link) => {
+    const isActive = link.getAttribute("href") === `#${page}`;
+    link.classList.toggle("active", isActive);
+    if (link.closest(".nav-links")) link.setAttribute("aria-current", isActive ? "page" : "false");
+  });
+
+  window.scrollTo({ top: 0, behavior: "auto" });
+  refreshIcons();
+}
+
+function initChartTooltip() {
+  const tooltip = $("#chartTooltip");
+  if (!tooltip) return;
+
+  document.addEventListener("pointerover", (event) => {
+    const target = event.target.closest?.("[data-tooltip]");
+    if (!target) return;
+    tooltip.innerHTML = target.dataset.tooltip || "";
+    tooltip.classList.add("visible");
+    positionChartTooltip(event, tooltip);
+  });
+
+  document.addEventListener("pointermove", (event) => {
+    if (!tooltip.classList.contains("visible")) return;
+    positionChartTooltip(event, tooltip);
+  });
+
+  document.addEventListener("pointerout", (event) => {
+    if (!event.target.closest?.("[data-tooltip]")) return;
+    tooltip.classList.remove("visible");
+  });
+}
+
+function positionChartTooltip(event, tooltip) {
+  const margin = 14;
+  const rect = tooltip.getBoundingClientRect();
+  const x = Math.min(window.innerWidth - rect.width - margin, event.clientX + margin);
+  const y = Math.min(window.innerHeight - rect.height - margin, event.clientY + margin);
+  tooltip.style.left = `${Math.max(margin, x)}px`;
+  tooltip.style.top = `${Math.max(margin, y)}px`;
 }
 
 async function loadAllData() {
@@ -191,6 +245,7 @@ async function loadAllData() {
     ["auctions", fetchAuctions],
     ["dollarQuotes", fetchDollarQuotes],
     ["macro", fetchMacro],
+    ["census", fetchCensus],
     ["risk", () => fetchData912("eod/volatilities/GGAL")]
   ];
 
@@ -202,6 +257,7 @@ async function loadAllData() {
       if (key === "auctions") state.auctions = value;
       else if (key === "dollarQuotes") state.dollarQuotes = value;
       else if (key === "macro") state.macro = value;
+      else if (key === "census") state.census = value;
       else if (key === "risk") state.risk = value;
       else state.live[key] = normalizeRows(value);
     } else {
@@ -209,14 +265,12 @@ async function loadAllData() {
     }
   }
 
-  await loadHistory($("#historySelect").value);
-
   renderDashboard();
   renderAuctions();
   renderDollars();
   renderMacro();
+  renderCensus();
   renderMarketSection();
-  renderHistory();
   renderRisk();
   renderExplorer();
 
@@ -254,21 +308,17 @@ async function fetchMacro() {
   return response.json();
 }
 
+async function fetchCensus() {
+  const response = await fetch("/api/census");
+  if (!response.ok) throw new Error("No se pudieron cargar datos de censo");
+  return response.json();
+}
+
 async function ensureMarketData(key) {
   if (state.live[key]?.length) return;
   try {
     state.live[key] = normalizeRows(await fetchData912(`live/${key}`));
   } catch (error) {
-    state.errors.push(error.message);
-  }
-}
-
-async function loadHistory(value) {
-  try {
-    const rows = await fetchData912(`historical/${value}`);
-    state.historyRows = normalizeRows(rows);
-  } catch (error) {
-    state.historyRows = [];
     state.errors.push(error.message);
   }
 }
@@ -290,14 +340,15 @@ function setStatus(text, mode) {
 
 function renderDashboard() {
   const mep = cleanDollarRows(state.live.mep, "mark", "v_ars");
-  const ccl = cleanDollarRows(state.live.ccl, "CCL_mark", "ars_volume");
   const mepAverage = weightedAverage(mep, "mark", "v_ars");
-  const cclAverage = weightedAverage(ccl, "CCL_mark", "ars_volume");
   const marketRows = [...(state.live.arg_stocks || []), ...(state.live.arg_cedears || []), ...(state.live.arg_bonds || [])];
-  const positiveShare = getPositiveShare(marketRows);
   const volumeLeader = getTopRows(marketRows, "v", 1)[0];
   const latestAuction = state.auctions?.latest;
-  const spread = cclAverage && mepAverage ? cclAverage - mepAverage : null;
+  const blueQuote = state.dollarQuotes?.quotes?.blue;
+  const officialQuote = state.dollarQuotes?.quotes?.bancoNacion;
+  const blueSpread = Number.isFinite(Number(blueQuote?.sell)) && Number.isFinite(Number(officialQuote?.sell))
+    ? Number(blueQuote.sell) - Number(officialQuote.sell)
+    : null;
 
   const cards = [
     {
@@ -308,18 +359,18 @@ function renderDashboard() {
       tone: "info"
     },
     {
-      label: "Dólar CCL promedio",
-      value: formatPrice(cclAverage),
-      note: spread === null ? "Compara precios locales contra su versión del exterior." : `Diferencia contra MEP: ${formatSignedPrice(spread)}.`,
-      trend: spread && spread > 20 ? "Más caro afuera" : "En línea",
-      tone: spread && spread > 20 ? "warning" : "good"
+      label: "Dólar blue",
+      value: formatPrice(blueQuote?.sell),
+      note: blueQuote ? `Venta relevada por ${blueQuote.source || "DolarHoy"}. Compra: ${formatPrice(blueQuote.buy)}.` : "Cotización informal relevada por DolarHoy.",
+      trend: blueSpread === null ? "DolarHoy" : `${formatSignedPrice(blueSpread)} vs oficial`,
+      tone: blueSpread && blueSpread > 0 ? "warning" : "good"
     },
     {
-      label: "Clima del mercado",
-      value: `${Math.round(positiveShare)}%`,
-      note: "Porcentaje de activos con variación diaria positiva entre acciones, CEDEARs y bonos.",
-      trend: positiveShare >= 55 ? "Mayoría verde" : positiveShare <= 45 ? "Mayoría roja" : "Mixto",
-      tone: positiveShare >= 55 ? "good" : positiveShare <= 45 ? "bad" : "warning"
+      label: "Dólar oficial",
+      value: formatPrice(officialQuote?.sell),
+      note: officialQuote ? `Venta Banco Nación. Compra: ${formatPrice(officialQuote.buy)}.` : "Referencia oficial minorista del Banco Nación.",
+      trend: officialQuote?.source || "Banco Nación",
+      tone: "info"
     },
     {
       label: "Última licitación",
@@ -463,11 +514,10 @@ function renderDonutChart(slices, { centerTop, centerBottom }) {
   const circles = slices.map((slice) => {
     const length = Math.max(0, (slice.percent / 100) * circumference);
     const dash = `${length.toFixed(2)} ${(circumference - length).toFixed(2)}`;
+    const tooltip = `<strong>${escapeHtml(debtFamilyLabels[slice.family] || slice.family)}</strong><span>${escapeHtml(formatPercent(slice.percent))}</span><span>${escapeHtml(formatAuctionMoney(slice.value))}</span>`;
     const circle = `
-      <circle cx="50" cy="50" r="${radius}" fill="none" stroke="${slice.color}" stroke-width="13"
-        stroke-dasharray="${dash}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 50 50)">
-        <title>${escapeSvg(debtFamilyLabels[slice.family])}: ${escapeSvg(formatPercent(slice.percent))}</title>
-      </circle>
+      <circle class="chart-hotspot" ${tooltipAttribute(tooltip)} cx="50" cy="50" r="${radius}" fill="none" stroke="${slice.color}" stroke-width="13"
+        stroke-dasharray="${dash}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 50 50)"></circle>
     `;
     offset += length;
     return circle;
@@ -553,23 +603,6 @@ function getFamilyShare(instruments, family) {
 
 function renderDollars() {
   renderOfficialDollarCards();
-
-  const mepRows = getTopRows(cleanDollarRows(state.live.mep, "mark", "v_ars"), "v_ars", 10);
-  const cclRows = getTopRows(cleanDollarRows(state.live.ccl, "CCL_mark", "ars_volume"), "ars_volume", 10);
-
-  renderVerticalBarChart($("#mepChart"), mepRows, {
-    labelKey: "ticker",
-    valueKey: "mark",
-    formatter: formatPrice,
-    color: () => "#007f79"
-  });
-
-  renderVerticalBarChart($("#cclChart"), cclRows, {
-    labelKey: "ticker_ar",
-    valueKey: "CCL_mark",
-    formatter: formatPrice,
-    color: () => "#2f6fb2"
-  });
 }
 
 function renderOfficialDollarCards() {
@@ -577,15 +610,33 @@ function renderOfficialDollarCards() {
   const rows = [
     {
       key: "bancoNacion",
-      title: "Dólar Banco Nación",
+      title: "Dólar oficial",
       icon: "landmark",
-      note: "Referencia oficial minorista. Sirve como piso institucional para comparar contra los demás dólares."
+      note: "Referencia minorista del Banco Nación. Es la base para comparar brechas y costos en pesos."
     },
     {
       key: "blue",
       title: "Dólar blue",
       icon: "wallet-cards",
       note: "Cotización informal relevada por DolarHoy. Es útil como termómetro social, no como precio de mercado regulado."
+    },
+    {
+      key: "mep",
+      title: "Dólar MEP",
+      icon: "repeat-2",
+      note: "Precio financiero local: surge de comprar y vender activos que cotizan en pesos y dólares dentro del mercado argentino."
+    },
+    {
+      key: "ccl",
+      title: "Dólar CCL",
+      icon: "globe-2",
+      note: "Contado con liquidación. Es una referencia financiera para dolarizarse mediante activos con liquidación fuera del país."
+    },
+    {
+      key: "tarjeta",
+      title: "Dólar tarjeta",
+      icon: "credit-card",
+      note: "Costo estimado para consumos con tarjeta en moneda extranjera, incluyendo percepciones e impuestos vigentes."
     }
   ];
 
@@ -634,48 +685,58 @@ function renderMacro() {
       title: "Inflación mensual",
       value: formatPercent(inflation?.value),
       detail: inflation ? `IPC de ${formatMonth(inflation.date)}.` : "Sin dato reciente.",
+      explain: "Mide cuánto subieron los precios de un mes al siguiente. Si baja varios meses, los pesos pierden poder de compra más lento; si sube, vuelve presión sobre salarios, tasas y consumo.",
       source: series.inflation?.sourceUrl
     },
     {
       title: "Balanza comercial",
       value: formatUsdMillions(trade?.value),
       detail: trade ? `${trade.value >= 0 ? "Superávit" : "Déficit"} en ${formatMonth(trade.date)}.` : "Sin dato reciente.",
+      explain: trade?.value >= 0
+        ? "Superávit significa que las exportaciones superaron a las importaciones: entraron más dólares comerciales de los que salieron por compras al exterior."
+        : "Déficit significa que las importaciones superaron a las exportaciones: faltan dólares comerciales y hay que financiarlos con reservas o crédito.",
       source: series.tradeBalance?.sourceUrl
     },
     {
       title: "Pobreza",
       value: formatPercent(poverty?.value),
       detail: poverty ? `Personas bajo línea de pobreza, ${formatSemester(poverty.date)}.` : "Sin dato reciente.",
+      explain: "Compara los ingresos de los hogares contra una canasta básica total. Si el ingreso no alcanza esa canasta, la persona queda bajo la línea de pobreza.",
       source: series.poverty?.sourceUrl
     },
     {
       title: "Indigencia",
       value: formatPercent(indigence?.value),
       detail: indigence ? `Personas bajo línea de indigencia, ${formatSemester(indigence.date)}.` : "Dato de informe INDEC.",
+      explain: "Es una medición más extrema que pobreza: mira si el ingreso alcanza para cubrir una canasta básica alimentaria.",
       source: indigence?.sourceUrl
     },
     {
       title: "Patentamientos",
       value: cars?.value ? numberFormat.format(cars.value) : "--",
-      detail: cars ? `Autos 0 km en ${formatMonth(cars.date)}; ${formatSignedPercentText(cars.change)} interanual.` : "Sin dato reciente.",
+      detail: cars ? `Autos 0 km en ${formatMonth(cars.date)}; ${formatSignedPercentText(cars.monthChange)} mensual y ${formatSignedPercentText(cars.change)} interanual.` : "Sin dato reciente.",
+      explain: cars ? `Es la cantidad de autos nuevos inscriptos. Contra febrero de 2026 (${numberFormat.format(cars.previousValue)} unidades), marzo mostró una suba mensual de ${formatSignedPercentText(cars.monthChange)}.` : "Mide cuántos autos 0 km se registran: sirve como termómetro de consumo durable.",
       source: cars?.sourceUrl
     },
     {
       title: "Confianza consumidor",
       value: confidence?.value ? round(confidence.value, 2) : "--",
       detail: confidence ? `ICC Di Tella: ${formatSignedPercentText(confidence.change)} mensual.` : "Sin dato reciente.",
+      explain: "Resume cómo perciben los hogares su situación y la economía. Cuando cae, suele anticipar más cautela para consumir o endeudarse.",
       source: confidence?.sourceUrl
     },
     {
       title: "Resultado primario",
       value: formatArsMillions(primary?.value),
       detail: primary ? `${primary.value >= 0 ? "Superávit" : "Déficit"} antes de intereses en ${formatMonth(primary.date)}.` : "Sin dato reciente.",
+      explain: "Es ingresos menos gastos del Estado antes de pagar intereses de deuda. Sirve para ver si las cuentas públicas cierran por la operación corriente.",
       source: series.primaryResult?.sourceUrl
     },
     {
       title: "Resultado financiero",
       value: formatArsMillions(financial?.value),
       detail: financial ? `${financial.value >= 0 ? "Superávit" : "Déficit"} después de intereses en ${formatMonth(financial.date)}.` : "Sin dato reciente.",
+      explain: "Es el saldo fiscal completo: toma el resultado primario y le resta los intereses de la deuda. Muestra si al final sobró o faltó plata.",
       source: series.financialResult?.sourceUrl
     }
   ];
@@ -685,35 +746,289 @@ function renderMacro() {
       <small>${escapeHtml(card.title)}</small>
       <strong>${escapeHtml(card.value)}</strong>
       <p>${escapeHtml(card.detail)}</p>
+      <p class="card-explain">${escapeHtml(card.explain)}</p>
       ${card.source ? `<a class="source-link" href="${escapeHtml(card.source)}" target="_blank" rel="noreferrer">Fuente</a>` : ""}
     </article>
   `).join("");
 
   renderInflationChart(series.inflation?.rows || []);
-  renderSignedVerticalBarChart($("#tradeChart"), (series.tradeBalance?.rows || []).slice(-18), {
+  renderAnnualInflationChart(series.inflation?.rows || []);
+  renderSignedVerticalBarChart($("#tradeChart"), (series.tradeBalance?.rows || []).slice(-12), {
     valueKey: "value",
     formatter: (value) => `${round(value, 0)} M`,
-    labelFormatter: (row) => shortDate(row.date)
+    labelFormatter: (row) => shortDate(row.date),
+    tooltipFormatter: (row, value) => {
+      const result = value >= 0 ? "Superávit" : "Déficit";
+      return `<strong>${escapeHtml(formatMonth(row.date))}</strong><span>${escapeHtml(result)}: US$ ${escapeHtml(numberFormat.format(Math.round(Math.abs(value))))} millones</span>`;
+    }
   });
   renderFiscalChart(series.primaryResult?.rows || [], series.financialResult?.rows || []);
-  renderMacroExplain(macro);
+}
+
+function renderCensus() {
+  const census = state.census;
+  if (!census) {
+    $("#censusSummary").innerHTML = `<div class="empty-state">No se pudieron cargar datos de censo.</div>`;
+    $("#censusPyramids").innerHTML = `<div class="empty-state">Sin piramide poblacional.</div>`;
+    $("#censusNarrative").innerHTML = "";
+    return;
+  }
+
+  const current = census.censuses?.current;
+  const previous = census.censuses?.previous;
+  const summary = census.summary;
+
+  if (!current?.rows?.length || !previous?.rows?.length) {
+    $("#censusSummary").innerHTML = `<div class="empty-state">No hay filas suficientes para comparar censos.</div>`;
+    $("#censusPyramids").innerHTML = `<div class="empty-state">Sin piramide poblacional.</div>`;
+    $("#censusNarrative").innerHTML = "";
+    return;
+  }
+
+  const cards = [
+    {
+      label: "Poblacion relevada",
+      value: `${formatPopulation(summary?.totals?.previous)} -> ${formatPopulation(summary?.totals?.current)}`,
+      note: `Cambio total: ${formatSignedCompactPopulation(summary?.totals?.delta)}.`
+    },
+    {
+      label: "Ninez (0 a 14)",
+      value: formatPercent(summary?.shares?.children?.current),
+      note: `En 2010 era ${formatPercent(summary?.shares?.children?.previous)}. Cambio: ${formatSignedPoints(summary?.shares?.children?.delta)}.`
+    },
+    {
+      label: "Mayores de 65",
+      value: formatPercent(summary?.shares?.older?.current),
+      note: `En 2010 era ${formatPercent(summary?.shares?.older?.previous)}. Cambio: ${formatSignedPoints(summary?.shares?.older?.delta)}.`
+    },
+    {
+      label: "Mujeres dentro de 65+",
+      value: formatPercent(summary?.shares?.olderFemale?.current),
+      note: `En 2010 era ${formatPercent(summary?.shares?.olderFemale?.previous)}.`
+    }
+  ];
+
+  $("#censusSummary").innerHTML = cards.map((card) => `
+    <article class="metric-card census-card">
+      <small>${escapeHtml(card.label)}</small>
+      <div class="kpi-value">${escapeHtml(card.value)}</div>
+      <small>${escapeHtml(card.note)}</small>
+    </article>
+  `).join("");
+
+  $("#censusPyramids").innerHTML = `
+    <article class="pyramid-card overlay-pyramid-card">
+      <div class="panel-title">
+        <span>Censo ${escapeHtml(previous.year)} vs ${escapeHtml(current.year)}</span>
+        <small>Superpuesto por edad y sexo</small>
+      </div>
+      ${renderPopulationPyramidOverlay(previous.rows, current.rows, previous.year, current.year)}
+    </article>
+  `;
+
+  $("#censusNarrative").innerHTML = `
+    <article>
+      <strong>Como cambio la forma</strong>
+      <p>La base se achico: hay menos peso relativo de chicos de 0 a 14 anos que en 2010. Eso suele pasar cuando bajan los nacimientos y la poblacion envejece.</p>
+    </article>
+    <article>
+      <strong>Mas peso en edades altas</strong>
+      <p>La parte de 65 anos o mas gano participacion. En una lectura simple, Argentina tiene una piramide menos triangular y mas parecida a una columna en las edades medias.</p>
+    </article>
+    <article>
+      <strong>Diferencia por sexo en edades altas</strong>
+      <p>En ambos censos se ve una mayor presencia femenina en los tramos mas altos, algo habitual cuando la esperanza de vida de las mujeres supera a la de los varones.</p>
+    </article>
+    <article>
+      <strong>Fuente y alcance</strong>
+      <p>El ultimo censo sale del cuadro oficial de INDEC en Redatam y la comparacion 2010 del cuadro nacional del censo anterior. Sirve para ver la estructura de la poblacion, no para sacar conclusiones financieras.</p>
+    </article>
+  `;
+}
+
+function renderPopulationPyramid(rows, year, color) {
+  const cleanRows = [...rows].sort((a, b) => ageGroupStart(a.ageGroup) - ageGroupStart(b.ageGroup));
+  const width = 520;
+  const rowHeight = 16;
+  const gap = 4;
+  const margin = { top: 42, right: 58, bottom: 18, left: 58 };
+  const centerGap = 20;
+  const height = margin.top + margin.bottom + cleanRows.length * (rowHeight + gap);
+  const plotWidth = width - margin.left - margin.right - centerGap;
+  const halfWidth = plotWidth / 2;
+  const centerX = margin.left + halfWidth;
+  const maxValue = Math.max(...cleanRows.flatMap((row) => [Number(row.male || 0), Number(row.female || 0)]), 1);
+  const ticks = [maxValue / 2, maxValue];
+
+  const bars = cleanRows.map((row, index) => {
+    const y = margin.top + index * (rowHeight + gap);
+    const maleWidth = (Number(row.male || 0) / maxValue) * (halfWidth - 12);
+    const femaleWidth = (Number(row.female || 0) / maxValue) * (halfWidth - 12);
+    const maleTooltip = `<strong>${escapeHtml(year)} · ${escapeHtml(row.ageGroup)}</strong><span>Varones: ${escapeHtml(numberFormat.format(row.male))}</span><span>Total grupo: ${escapeHtml(numberFormat.format(row.total))}</span>`;
+    const femaleTooltip = `<strong>${escapeHtml(year)} · ${escapeHtml(row.ageGroup)}</strong><span>Mujeres: ${escapeHtml(numberFormat.format(row.female))}</span><span>Total grupo: ${escapeHtml(numberFormat.format(row.total))}</span>`;
+    return `
+      <text x="${centerX - 10}" y="${y + 11.5}" text-anchor="end" class="chart-label">${escapeSvg(row.ageGroup)}</text>
+      <rect class="chart-hotspot" ${tooltipAttribute(maleTooltip)} x="${centerX - maleWidth}" y="${y}" width="${maleWidth}" height="${rowHeight}" rx="4" fill="${color}" opacity="0.88"></rect>
+      <rect class="chart-hotspot" ${tooltipAttribute(femaleTooltip)} x="${centerX + centerGap}" y="${y}" width="${femaleWidth}" height="${rowHeight}" rx="4" fill="${color}" opacity="0.48"></rect>
+    `;
+  }).join("");
+
+  const tickLines = ticks.map((tick) => {
+    const span = (tick / maxValue) * (halfWidth - 12);
+    return `
+      <line x1="${centerX - span}" x2="${centerX - span}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="grid-line"></line>
+      <line x1="${centerX + centerGap + span}" x2="${centerX + centerGap + span}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="grid-line"></line>
+      <text x="${centerX - span}" y="${margin.top - 16}" text-anchor="middle" class="chart-label">${escapeSvg(formatPopulationTick(tick))}</text>
+      <text x="${centerX + centerGap + span}" y="${margin.top - 16}" text-anchor="middle" class="chart-label">${escapeSvg(formatPopulationTick(tick))}</text>
+    `;
+  }).join("");
+
+  return `
+    <div class="pyramid-wrap">
+      <svg class="chart-svg pyramid-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Piramide poblacional ${escapeHtml(year)}">
+        <text x="${centerX - halfWidth / 2}" y="18" text-anchor="middle" class="chart-label">Varones</text>
+        <text x="${centerX + centerGap + halfWidth / 2}" y="18" text-anchor="middle" class="chart-label">Mujeres</text>
+        <line x1="${centerX}" x2="${centerX}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="axis-line"></line>
+        <line x1="${centerX + centerGap}" x2="${centerX + centerGap}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="axis-line"></line>
+        ${tickLines}
+        ${bars}
+      </svg>
+      <p class="chart-help visible">Izquierda: varones. Derecha: mujeres. Las barras mas anchas muestran grupos de edad con mas peso dentro de la poblacion.</p>
+    </div>
+  `;
+}
+
+function renderPopulationPyramidOverlay(previousRows, currentRows, previousYear, currentYear) {
+  const previousByAge = new Map(previousRows.map((row) => [row.ageGroup, row]));
+  const currentByAge = new Map(currentRows.map((row) => [row.ageGroup, row]));
+  const ageGroups = [...new Set([...previousByAge.keys(), ...currentByAge.keys()])]
+    .sort((a, b) => ageGroupStart(a) - ageGroupStart(b));
+  const rows = ageGroups.map((ageGroup) => ({
+    ageGroup,
+    previous: previousByAge.get(ageGroup) || { male: 0, female: 0, total: 0 },
+    current: currentByAge.get(ageGroup) || { male: 0, female: 0, total: 0 }
+  }));
+
+  const width = 760;
+  const rowHeight = 16;
+  const gap = 5;
+  const margin = { top: 50, right: 78, bottom: 28, left: 78 };
+  const centerGap = 26;
+  const height = margin.top + margin.bottom + rows.length * (rowHeight + gap);
+  const plotWidth = width - margin.left - margin.right - centerGap;
+  const halfWidth = plotWidth / 2;
+  const centerX = margin.left + halfWidth;
+  const maxValue = Math.max(...rows.flatMap((row) => [
+    Number(row.previous.male || 0),
+    Number(row.previous.female || 0),
+    Number(row.current.male || 0),
+    Number(row.current.female || 0)
+  ]), 1);
+  const scale = (value) => (Number(value || 0) / maxValue) * (halfWidth - 14);
+
+  const bars = rows.map((row, index) => {
+    const y = margin.top + index * (rowHeight + gap);
+    const prevMaleWidth = scale(row.previous.male);
+    const prevFemaleWidth = scale(row.previous.female);
+    const currentMaleWidth = scale(row.current.male);
+    const currentFemaleWidth = scale(row.current.female);
+    const deltaTotal = Number(row.current.total || 0) - Number(row.previous.total || 0);
+    const tooltip = `<strong>${escapeHtml(row.ageGroup)}</strong><span>${escapeHtml(previousYear)}: ${escapeHtml(numberFormat.format(row.previous.total || 0))}</span><span>${escapeHtml(currentYear)}: ${escapeHtml(numberFormat.format(row.current.total || 0))}</span><span>Cambio: ${escapeHtml(formatSignedCompactPopulation(deltaTotal))}</span>`;
+    return `
+      <text x="${centerX - 10}" y="${y + 12}" text-anchor="end" class="chart-label">${escapeSvg(row.ageGroup)}</text>
+      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${centerX - prevMaleWidth}" y="${y}" width="${prevMaleWidth}" height="${rowHeight}" rx="4" fill="#4aa3ff" opacity="0.25"></rect>
+      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${centerX + centerGap}" y="${y}" width="${prevFemaleWidth}" height="${rowHeight}" rx="4" fill="#4aa3ff" opacity="0.25"></rect>
+      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${centerX - currentMaleWidth}" y="${y + 3}" width="${currentMaleWidth}" height="${rowHeight - 6}" rx="4" fill="#1fc6b5" opacity="0.92"></rect>
+      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${centerX + centerGap}" y="${y + 3}" width="${currentFemaleWidth}" height="${rowHeight - 6}" rx="4" fill="#1fc6b5" opacity="0.62"></rect>
+    `;
+  }).join("");
+
+  return `
+    <div class="pyramid-wrap">
+      <svg class="chart-svg pyramid-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Piramide poblacional superpuesta ${escapeHtml(previousYear)} y ${escapeHtml(currentYear)}">
+        <text x="${centerX - halfWidth / 2}" y="18" text-anchor="middle" class="chart-label">Varones</text>
+        <text x="${centerX + centerGap + halfWidth / 2}" y="18" text-anchor="middle" class="chart-label">Mujeres</text>
+        <rect x="${margin.left}" y="28" width="10" height="10" rx="3" fill="#4aa3ff" opacity="0.35"></rect>
+        <text x="${margin.left + 16}" y="37" class="chart-label">${escapeSvg(previousYear)}</text>
+        <rect x="${margin.left + 78}" y="28" width="10" height="10" rx="3" fill="#1fc6b5" opacity="0.92"></rect>
+        <text x="${margin.left + 94}" y="37" class="chart-label">${escapeSvg(currentYear)}</text>
+        <line x1="${centerX}" x2="${centerX}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="axis-line"></line>
+        <line x1="${centerX + centerGap}" x2="${centerX + centerGap}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="axis-line"></line>
+        ${gridLines(width, height, margin)}
+        ${bars}
+      </svg>
+      <p class="chart-help visible">Azul claro: ${escapeHtml(previousYear)}. Verde: ${escapeHtml(currentYear)}. Si el verde sobresale, ese grupo creció; si queda adentro, perdió peso o cantidad.</p>
+    </div>
+  `;
 }
 
 function renderInflationChart(rows) {
-  const cleanRows = rows.filter((row) => Number.isFinite(Number(row.value))).slice(-36);
-  renderLineChart($("#inflationChart"), cleanRows, {
-    xKey: "date",
-    yKey: "value",
+  const cleanRows = rows.filter((row) => Number.isFinite(Number(row.value))).slice(-24);
+  const rowsWithPrevious = cleanRows.map((row, index) => ({
+    ...row,
+    previousValue: index > 0 ? cleanRows[index - 1].value : null
+  }));
+
+  renderVerticalBarChart($("#inflationChart"), rowsWithPrevious, {
+    labelKey: "date",
+    valueKey: "value",
     formatter: formatPercent,
     color: "#f2b84b",
-    label: "IPC mensual"
+    labelFormatter: shortDate,
+    maxItems: 24,
+    ariaLabel: "Inflacion mensual comparada con meses previos",
+    tooltipFormatter: (row, value) => {
+      const previous = row.previousValue === null ? null : Number(row.previousValue);
+      const delta = Number.isFinite(previous) ? value - previous : null;
+      const comparison = Number.isFinite(delta)
+        ? `${delta >= 0 ? "Subio" : "Bajo"} ${formatPercent(Math.abs(delta))} contra el mes previo`
+        : "Primer mes de la ventana mostrada";
+      return `<strong>${escapeHtml(formatMonth(row.date))}</strong><span>IPC mensual: ${escapeHtml(formatPercent(value))}</span><span>${escapeHtml(comparison)}</span>`;
+    }
   });
 
-  const last = cleanRows.at(-1);
-  const previous = cleanRows.at(-2);
+  const last = rowsWithPrevious.at(-1);
+  const previous = rowsWithPrevious.at(-2);
   if (!last || !previous) return;
   const direction = last.value > previous.value ? "aceleró" : last.value < previous.value ? "desaceleró" : "quedó igual";
   $("#inflationNarrative").textContent = `El último IPC fue ${formatPercent(last.value)} en ${formatMonth(last.date)} y ${direction} frente al mes anterior (${formatPercent(previous.value)}).`;
+}
+
+function renderAnnualInflationChart(rows) {
+  const cleanRows = rows.filter((row) => Number.isFinite(Number(row.value)))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const annualRows = [];
+
+  for (let index = 11; index < cleanRows.length; index += 1) {
+    const windowRows = cleanRows.slice(index - 11, index + 1);
+    const factor = windowRows.reduce((acc, row) => acc * (1 + Number(row.value) / 100), 1);
+    const annual = (factor - 1) * 100;
+    const previousAnnual = annualRows.at(-1)?.annual;
+    annualRows.push({
+      date: cleanRows[index].date,
+      annual,
+      delta: Number.isFinite(previousAnnual) ? annual - previousAnnual : null
+    });
+  }
+
+  const visibleRows = annualRows.slice(-18);
+  renderLineChart($("#inflationAnnualChart"), visibleRows, {
+    xKey: "date",
+    yKey: "annual",
+    formatter: formatPercent,
+    color: "#1fc6b5",
+    label: "Inflación interanual",
+    tooltipFormatter: (row, value) => {
+      const delta = Number.isFinite(Number(row.delta)) ? formatSignedPoints(row.delta) : "sin comparación previa";
+      return `<strong>${escapeHtml(formatMonth(row.date))}</strong><span>Interanual: ${escapeHtml(formatPercent(value))}</span><span>Variación mensual de la interanual: ${escapeHtml(delta)}</span>`;
+    }
+  });
+
+  const last = visibleRows.at(-1);
+  const previous = visibleRows.at(-2);
+  if (!last || !previous) return;
+  const direction = last.annual > previous.annual ? "subió" : last.annual < previous.annual ? "bajó" : "quedó igual";
+  $("#inflationAnnualNarrative").textContent = `La inflación interanual estimada fue ${formatPercent(last.annual)} en ${formatMonth(last.date)} y ${direction} ${formatSignedPoints(last.annual - previous.annual)} contra el mes anterior.`;
 }
 
 function renderSignedVerticalBarChart(container, data, options) {
@@ -739,10 +1054,11 @@ function renderSignedVerticalBarChart(container, data, options) {
     const x = margin.left + index * step + (step - barWidth) / 2;
     const y = value >= 0 ? zeroY - heightValue : zeroY;
     const label = options.labelFormatter ? options.labelFormatter(row) : row.date;
+    const tooltip = options.tooltipFormatter
+      ? options.tooltipFormatter(row, value)
+      : `<strong>${escapeHtml(formatMonth(row.date))}</strong><span>${escapeHtml(options.formatter(value))}</span>`;
     return `
-      <rect x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="5" fill="${value >= 0 ? "#4ad080" : "#ff6b6b"}">
-        <title>${escapeSvg(options.formatter(value))}</title>
-      </rect>
+      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="5" fill="${value >= 0 ? "#4ad080" : "#ff6b6b"}"></rect>
       <text x="${x + barWidth / 2}" y="${height - 28}" text-anchor="middle" class="chart-label">${escapeSvg(shortText(label, 8))}</text>
     `;
   }).join("");
@@ -770,6 +1086,13 @@ function renderFiscalChart(primaryRows, financialRows) {
     .filter((row) => Number.isFinite(row.primary) || Number.isFinite(row.financial))
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
     .slice(-12);
+
+  const latest = rows.at(-1);
+  if ($("#fiscalNarrative") && latest) {
+    const primaryText = Number.isFinite(latest.primary) ? `primario ${formatArsMillions(latest.primary)}` : "primario sin dato";
+    const financialText = Number.isFinite(latest.financial) ? `financiero ${formatArsMillions(latest.financial)}` : "financiero sin dato";
+    $("#fiscalNarrative").textContent = `Primario mira ingresos menos gastos antes de intereses. Financiero incluye intereses de deuda. Último dato disponible en la serie: ${formatMonth(latest.date)} (${primaryText}; ${financialText}).`;
+  }
 
   renderGroupedBarChart($("#fiscalChart"), rows, {
     series: [
@@ -808,10 +1131,9 @@ function renderGroupedBarChart(container, data, options) {
       const heightValue = Math.max(2, (Math.abs(value) / maxAbs) * (plotHeight / 2 - 8));
       const x = groupX + (serieIndex - (options.series.length - 1) / 2) * (barWidth + 3) - barWidth / 2;
       const y = value >= 0 ? zeroY - heightValue : zeroY;
+      const tooltip = `<strong>${escapeHtml(formatMonth(row.date))}</strong><span>${escapeHtml(serie.label)}: ${escapeHtml(options.formatter(value))}</span>`;
       return `
-        <rect x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="4" fill="${serie.color}">
-          <title>${escapeSvg(serie.label)}: ${escapeSvg(options.formatter(value))}</title>
-        </rect>
+        <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="4" fill="${serie.color}"></rect>
       `;
     }).join("");
     return `
@@ -835,28 +1157,6 @@ function renderGroupedBarChart(container, data, options) {
   `;
 }
 
-function renderMacroExplain(macro) {
-  const indigence = macro.snapshots?.indigence;
-  $("#macroExplain").innerHTML = `
-    <article>
-      <strong>Inflación</strong>
-      <p>Si sube, el peso compra menos. En el gráfico importa la dirección: varios meses de baja alivian ingresos y tasas; una aceleración vuelve más defensiva la lectura.</p>
-    </article>
-    <article>
-      <strong>Pobreza e indigencia</strong>
-      <p>Pobreza compara ingresos contra una canasta total; indigencia contra una canasta alimentaria. ${escapeHtml(indigence?.note || "")}</p>
-    </article>
-    <article>
-      <strong>Balanza comercial</strong>
-      <p>Superávit es aire de dólares comerciales. Déficit no siempre es malo, pero exige financiamiento o reservas para pagarlo.</p>
-    </article>
-    <article>
-      <strong>Resultado fiscal</strong>
-      <p>El primario dice si el Estado cubre sus gastos antes de intereses. El financiero muestra el resultado final después de pagar intereses de deuda.</p>
-    </article>
-  `;
-}
-
 function renderMarketSection() {
   const rows = normalizeRows(state.live[state.selectedMarket]);
   $("#moversTitle").textContent = `${marketLabels[state.selectedMarket]}: cambios diarios`;
@@ -876,64 +1176,31 @@ function renderMarketSection() {
   renderTable($("#marketTable"), topVolume, marketColumns());
 }
 
-function renderHistory() {
-  const rows = state.historyRows
-    .filter((row) => Number.isFinite(Number(row.c)) && Number(row.c) > 0 && String(row.date || "").length)
-    .slice(-120);
-
-  if (!rows.length) {
-    $("#priceChart").innerHTML = `<div class="empty-state">No hay histórico disponible para este activo.</div>`;
-    $("#volumeChart").innerHTML = "";
-    return;
-  }
-
-  renderLineChart($("#priceChart"), rows, {
-    xKey: "date",
-    yKey: "c",
-    formatter: formatCompactNumber,
-    color: "#007f79",
-    label: "Precio de cierre"
-  });
-
-  renderVerticalBarChart($("#volumeChart"), rows.slice(-50), {
-    labelKey: "date",
-    valueKey: "v",
-    formatter: formatCompactNumber,
-    color: () => "#d89a00",
-    labelFormatter: shortDate
-  });
-
-  const first = rows[0];
-  const last = rows[rows.length - 1];
-  const change = ((Number(last.c) / Number(first.c)) - 1) * 100;
-  const latestVolatility = Number(last.sa);
-  const ticker = $("#historySelect").selectedOptions[0].textContent.split(",")[0];
-  const movement = change >= 0 ? "subió" : "bajó";
-  $("#historyNarrative").textContent = `${ticker} ${movement} ${formatPercent(Math.abs(change))} en la ventana mostrada. La volatilidad anualizada reciente ronda ${formatPercent(latestVolatility * 100)}.`;
-}
-
 function renderRisk() {
   const risk = Array.isArray(state.risk) ? state.risk[0] : state.risk;
+  const expected = Number(risk?.iv_s_term || 0) * 100;
+  const historical = Number(risk?.hv_s_term || 0) * 100;
+  const premium = expected - historical;
   const cards = [
     {
       label: "Volatilidad esperada",
-      value: formatPercent(Number(risk?.iv_s_term || 0) * 100),
-      note: "Lo que el mercado de opciones espera para el corto plazo."
+      value: formatPercent(expected),
+      note: "Es la oscilación que el mercado de opciones está cobrando hacia adelante. Más alta implica que se esperan precios más movedizos."
     },
     {
       label: "Volatilidad histórica",
-      value: formatPercent(Number(risk?.hv_s_term || 0) * 100),
-      note: "Lo que efectivamente se movió el activo recientemente."
+      value: formatPercent(historical),
+      note: "Es cuánto se movió realmente el activo en el pasado reciente. Sirve como piso de comparación contra la expectativa."
     },
     {
       label: "Percentil histórico",
       value: formatPercent(Number(risk?.hv_s_term_percentile || 0) * 100),
-      note: "Qué tan alta está la volatilidad frente a su propia historia."
+      note: "Ubica la volatilidad actual frente a su propia historia. 70% significa que estuvo más baja en 7 de cada 10 momentos comparables."
     },
     {
-      label: "Prima opciones",
+      label: "Prima de opciones",
       value: round(Number(risk?.iv_hv_s_ratio || 0), 2),
-      note: "Mayor a 1 implica opciones caras frente al movimiento pasado."
+      note: `Mayor a 1 indica que las opciones cobran más movimiento del que se vio recientemente. Diferencia esperada vs histórica: ${formatSignedPoints(premium)}.`
     }
   ];
 
@@ -1020,149 +1287,17 @@ function renderGuide() {
       text: "El resultado primario mira ingresos menos gastos antes de intereses. El financiero incluye los intereses de la deuda y muestra el saldo fiscal completo."
     },
     {
-      title: "BYMA Market Data",
-      text: "Es la fuente oficial de datos de mercado de BYMA. Puede entregar precios en tiempo real, con demora de 20 minutos o al cierre del día, según el plan contratado."
+      title: "Piramide poblacional",
+      text: "Ordena a la poblacion por edad y sexo. Si la base se hace mas angosta entre censos, suele indicar menos nacimientos; si la parte alta gana peso, hay envejecimiento poblacional."
     },
     {
-      title: "Instrument master",
-      text: "Es el diccionario de instrumentos: ticker, tipo de activo, moneda, segmento y parámetros de negociación. Sirve para que una persona entienda qué está mirando antes de ver el precio."
+      title: "Instrumento",
+      text: "Es cada bono, letra, accion o CEDEAR individual. El ticker es solo su nombre corto; lo importante es que activo representa, en que moneda esta y que riesgo tiene."
     }
   ];
 
   $("#guideGrid").innerHTML = items.map((item) => `
-    <details>
-      <summary>${escapeHtml(item.title)}</summary>
-      <p>${escapeHtml(item.text)}</p>
-    </details>
-  `).join("");
-}
-
-function renderBymaSection() {
-  const catalog = [
-    {
-      name: "Snapshot",
-      scope: "Precios en tiempo real",
-      detail: "Renta variable, renta fija, futuros, opciones, cauciones, préstamos, índices e intradiarios.",
-      value: "Para tablero profesional en vivo"
-    },
-    {
-      name: "Delay",
-      scope: "Precios con 20 minutos",
-      detail: "La misma cobertura de mercado que Snapshot, pero con latencia. Útil para una web pública sin necesidad de real time.",
-      value: "Para lectores generales"
-    },
-    {
-      name: "EOD",
-      scope: "Cierres del día",
-      detail: "Precios de cierre al finalizar la rueda. Ideal para históricos, rankings diarios y análisis sin ruido intradiario.",
-      value: "Para tendencias limpias"
-    },
-    {
-      name: "Índices",
-      scope: "Índices BYMA",
-      detail: "Incluye datos de tipo de cambio, renta fija y cauciones, con valores históricos e intradiarios según plan.",
-      value: "Para contexto macro"
-    },
-    {
-      name: "Instruments",
-      scope: "Maestro de instrumentos",
-      detail: "Características de acciones, CEDEARs, bonos, futuros, opciones, cauciones, préstamos y ticks de precio.",
-      value: "Para explicar cada ticker"
-    },
-    {
-      name: "News",
-      scope: "Noticias relevantes",
-      detail: "Hechos relevantes, balances, avisos de BYMA, boletines y prospectos.",
-      value: "Para alertas y contexto"
-    },
-    {
-      name: "Primarias Placements",
-      scope: "Mercado primario",
-      detail: "Colocaciones actuales e históricas con emisor, colocador, fechas, condiciones y documentación.",
-      value: "Para licitaciones privadas"
-    },
-    {
-      name: "Índice Dólar BYMA",
-      scope: "Dólar BYMA y CCL",
-      detail: "Valor del índice de dólar BYMA y CCL, útil para comparar contra MEP/CCL calculados por Data912.",
-      value: "Para validación oficial"
-    }
-  ];
-
-  const plans = [
-    {
-      audience: "Miembros",
-      rows: [
-        ["Snapshot", "USD 400/mes", "237.600 solicitudes/mes"],
-        ["Delay", "USD 100/mes", "79.200 solicitudes/mes"],
-        ["EOD", "Sin costo", "1.000 solicitudes/mes"],
-        ["Índices", "Sin costo", "EOD + intraday"],
-        ["News", "Sin costo", "1.000 solicitudes/mes"],
-        ["Instruments", "Sin costo", "1.000 solicitudes/mes"]
-      ]
-    },
-    {
-      audience: "No miembros",
-      rows: [
-        ["Snapshot", "USD 1.000/mes", "237.600 solicitudes/mes"],
-        ["Delay", "USD 500/mes", "79.200 solicitudes/mes"],
-        ["EOD", "USD 50/mes", "1.000 solicitudes/mes"],
-        ["Índices", "USD 100/mes", "EOD + intraday"],
-        ["News", "USD 50/mes", "1.000 solicitudes/mes"],
-        ["Instruments", "USD 200/mes", "1.000 solicitudes/mes"]
-      ]
-    }
-  ];
-
-  const flow = [
-    {
-      title: "1. Elegir producto",
-      text: "Para esta web empezaría por EOD, Instruments, News, Índices y Primarias Placements. Snapshot queda para tiempo real profesional."
-    },
-    {
-      title: "2. Pedir acceso",
-      text: "BYMA indica que Market Data se solicita vía contrato/disclaimer DMA y contacto con marketdata@byma.com.ar."
-    },
-    {
-      title: "3. Guardar credenciales",
-      text: "El servidor local puede leer un token desde variables de entorno y llamar a BYMA desde backend, sin exponer claves al navegador."
-    },
-    {
-      title: "4. Normalizar datos",
-      text: "Mapear símbolo, moneda, segmento, último precio, volumen, horario, tipo de instrumento y fuente. Así Data912 y BYMA conviven."
-    },
-    {
-      title: "5. Mostrar trazabilidad",
-      text: "Cada gráfico debería mostrar si viene de Data912, BYMA Delay, BYMA EOD o licitaciones oficiales para que el usuario confíe en el dato."
-    }
-  ];
-
-  $("#bymaCatalog").innerHTML = catalog.map((item) => `
-    <article class="api-card">
-      <div>
-        <strong>${escapeHtml(item.name)}</strong>
-        <span>${escapeHtml(item.scope)}</span>
-      </div>
-      <p>${escapeHtml(item.detail)}</p>
-      <small>${escapeHtml(item.value)}</small>
-    </article>
-  `).join("");
-
-  $("#bymaPlans").innerHTML = plans.map((plan) => `
-    <article class="plan-card">
-      <h3>${escapeHtml(plan.audience)}</h3>
-      ${plan.rows.map((row) => `
-        <div class="plan-row">
-          <strong>${escapeHtml(row[0])}</strong>
-          <span>${escapeHtml(row[1])}</span>
-          <small>${escapeHtml(row[2])}</small>
-        </div>
-      `).join("")}
-    </article>
-  `).join("");
-
-  $("#bymaFlow").innerHTML = flow.map((item) => `
-    <article class="flow-step">
+    <article class="guide-card">
       <strong>${escapeHtml(item.title)}</strong>
       <p>${escapeHtml(item.text)}</p>
     </article>
@@ -1184,7 +1319,7 @@ function renderTable(container, rows, columns) {
 }
 
 function renderVerticalBarChart(container, data, options) {
-  const rows = data.filter((row) => Number.isFinite(Number(row[options.valueKey]))).slice(0, 18);
+  const rows = data.filter((row) => Number.isFinite(Number(row[options.valueKey]))).slice(0, options.maxItems || 18);
   if (!rows.length) {
     container.innerHTML = `<div class="empty-state">No hay datos suficientes para graficar.</div>`;
     return;
@@ -1207,8 +1342,11 @@ function renderVerticalBarChart(container, data, options) {
     const y = margin.top + plotHeight - barHeight;
     const label = options.labelFormatter ? options.labelFormatter(row[options.labelKey]) : row[options.labelKey];
     const color = typeof options.color === "function" ? options.color(row) : options.color;
+    const tooltip = options.tooltipFormatter
+      ? options.tooltipFormatter(row, value)
+      : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(options.formatter(value))}</span>`;
     return `
-      <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="5" fill="${color || "#007f79"}"></rect>
+      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="5" fill="${color || "#007f79"}"></rect>
       <text x="${x + barWidth / 2}" y="${height - 28}" text-anchor="middle" class="chart-label">${escapeSvg(shortText(label, 9))}</text>
       <text x="${x + barWidth / 2}" y="${Math.max(14, y - 7)}" text-anchor="middle" class="chart-label">${escapeSvg(options.formatter(value))}</text>
     `;
@@ -1225,7 +1363,7 @@ function renderVerticalBarChart(container, data, options) {
     : "";
 
   container.innerHTML = `
-    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfico de barras">
+    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(options.ariaLabel || "Gráfico de barras")}">
       ${gridLines(width, height, margin)}
       ${target}
       ${bars}
@@ -1256,9 +1394,13 @@ function renderHorizontalBarChart(container, data, options) {
     const color = value >= 0 ? "#18825c" : "#bf3b3b";
     const textX = value >= 0 ? zeroX + length + 6 : zeroX - length - 6;
     const anchor = value >= 0 ? "start" : "end";
+    const label = row[options.labelKey];
+    const tooltip = options.tooltipFormatter
+      ? options.tooltipFormatter(row, value)
+      : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(options.formatter(value))}</span>`;
     return `
-      <text x="${margin.left - 10}" y="${y + 12}" text-anchor="end" class="chart-label">${escapeSvg(shortText(row[options.labelKey], 10))}</text>
-      <rect x="${x}" y="${y}" width="${length}" height="16" rx="5" fill="${color}"></rect>
+      <text x="${margin.left - 10}" y="${y + 12}" text-anchor="end" class="chart-label">${escapeSvg(shortText(label, 10))}</text>
+      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${length}" height="16" rx="5" fill="${color}"></rect>
       <text x="${textX}" y="${y + 12}" text-anchor="${anchor}" class="chart-label">${escapeSvg(options.formatter(value))}</text>
     `;
   }).join("");
@@ -1296,6 +1438,14 @@ function renderLineChart(container, data, options) {
   const area = `${path} L ${margin.left + plotWidth} ${margin.top + plotHeight} L ${margin.left} ${margin.top + plotHeight} Z`;
   const first = rows[0];
   const last = rows[rows.length - 1];
+  const hotspots = points.map(([x, y, row]) => {
+    const value = Number(row[options.yKey]);
+    const label = options.xFormatter ? options.xFormatter(row[options.xKey]) : formatMonth(row[options.xKey]);
+    const tooltip = options.tooltipFormatter
+      ? options.tooltipFormatter(row, value)
+      : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(options.label)}: ${escapeHtml(options.formatter(value))}</span>`;
+    return `<circle class="chart-hotspot" ${tooltipAttribute(tooltip)} cx="${x}" cy="${y}" r="8" fill="transparent" stroke="transparent"></circle>`;
+  }).join("");
 
   container.innerHTML = `
     <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(options.label)}">
@@ -1303,6 +1453,7 @@ function renderLineChart(container, data, options) {
       <path d="${area}" fill="${options.color}" opacity="0.12"></path>
       <path d="${path}" fill="none" stroke="${options.color}" stroke-width="3"></path>
       <circle cx="${points.at(-1)[0]}" cy="${points.at(-1)[1]}" r="5" fill="${options.color}"></circle>
+      ${hotspots}
       <text x="${margin.left}" y="${height - 18}" class="chart-label">${escapeSvg(shortDate(first[options.xKey]))}</text>
       <text x="${width - margin.right}" y="${height - 18}" text-anchor="end" class="chart-label">${escapeSvg(shortDate(last[options.xKey]))}</text>
       <text x="${margin.left}" y="16" class="chart-label">${escapeSvg(options.label)}: ${escapeSvg(options.formatter(Number(last[options.yKey])))}</text>
@@ -1435,6 +1586,35 @@ function formatCompactNumber(value) {
   return compactFormat.format(numeric);
 }
 
+function formatPopulation(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+  if (numeric >= 1000000) return `${round(numeric / 1000000, 1)} M`;
+  return numberFormat.format(Math.round(numeric));
+}
+
+function formatSignedCompactPopulation(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+  const sign = numeric > 0 ? "+" : numeric < 0 ? "-" : "";
+  const abs = Math.abs(numeric);
+  if (abs >= 1000000) return `${sign}${round(abs / 1000000, 1)} M`;
+  return `${sign}${numberFormat.format(Math.round(abs))}`;
+}
+
+function formatSignedPoints(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${round(numeric, 1)} p.p.`;
+}
+
+function formatPopulationTick(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+  return numeric >= 1000000 ? `${round(numeric / 1000000, 1)} M` : `${round(numeric / 1000, 0)} k`;
+}
+
 function formatDate(value) {
   if (!value) return "--";
   return dateFormat.format(new Date(`${value}T00:00:00Z`)).replace(".", "");
@@ -1502,6 +1682,12 @@ function shortText(value, length) {
   return text.length > length ? `${text.slice(0, Math.max(1, length - 1))}…` : text;
 }
 
+function ageGroupStart(ageGroup) {
+  const text = String(ageGroup || "");
+  if (text.endsWith("+")) return Number(text.replace("+", ""));
+  return Number(text.split("-")[0]);
+}
+
 function round(value, digits = 1) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "--";
@@ -1522,6 +1708,10 @@ function escapeHtml(value) {
 
 function escapeSvg(value) {
   return escapeHtml(value);
+}
+
+function tooltipAttribute(html) {
+  return `data-tooltip="${escapeHtml(html)}"`;
 }
 
 function refreshIcons() {

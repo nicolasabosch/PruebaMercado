@@ -16,6 +16,9 @@ const datosSearchApiUrl = "https://apis.datos.gob.ar/series/api/search/";
 const indecPovertyReportUrl = "https://www.indec.gob.ar/uploads/informesdeprensa/eph_pobreza_03_269225CA3217.pdf";
 const acaraReportUrl = "https://api.acara.org.ar/storage/documents/7e24295a-d5bd-406e-bdda-e764d1cb4351.pdf";
 const utdtIccUrl = "https://www.utdt.edu/nota_prensa.php?id_item_menu=20475&id_nota_prensa=23325";
+const meconFiscalMarch2026Url = "https://www.argentina.gob.ar/noticias/en-marzo-el-sector-publico-nacional-registro-superavit-financiero-por-484789-millones-luego";
+const indecCensus2022Url = "https://redatam.indec.gob.ar/binarg/RpWebStats.exe/CrossTab?BASE=CPV2022&ITEM=EDADQUIN&lang=ESP";
+const indecCensus2010Url = "https://biblioteca.indec.gob.ar/bases/minde/1c2010b2t2.pdf";
 
 const memoryCache = new Map();
 
@@ -49,6 +52,54 @@ const fallbackAuctions = [
     ],
     conversions: []
   }
+];
+
+const census2010Rows = [
+  { ageGroup: "0-4", female: 1639680, male: 1697972, total: 3337652 },
+  { ageGroup: "5-9", female: 1663467, male: 1717752, total: 3381219 },
+  { ageGroup: "10-14", female: 1724074, male: 1779372, total: 3503446 },
+  { ageGroup: "15-19", female: 1757006, male: 1785061, total: 3542067 },
+  { ageGroup: "20-24", female: 1651693, male: 1648456, total: 3300149 },
+  { ageGroup: "25-29", female: 1578403, male: 1552106, total: 3130509 },
+  { ageGroup: "30-34", female: 1575371, male: 1523342, total: 3098713 },
+  { ageGroup: "35-39", female: 1366907, male: 1311528, total: 2678435 },
+  { ageGroup: "40-44", female: 1184888, male: 1125887, total: 2310775 },
+  { ageGroup: "45-49", female: 1128882, male: 1067468, total: 2196350 },
+  { ageGroup: "50-54", female: 1056797, male: 986196, total: 2042993 },
+  { ageGroup: "55-59", female: 975380, male: 893570, total: 1868950 },
+  { ageGroup: "60-64", female: 860276, male: 760914, total: 1621190 },
+  { ageGroup: "65-69", female: 704492, male: 588569, total: 1293061 },
+  { ageGroup: "70-74", female: 577459, male: 438438, total: 1015897 },
+  { ageGroup: "75-79", female: 480178, male: 321481, total: 801659 },
+  { ageGroup: "80-84", female: 365172, male: 200744, total: 565916 },
+  { ageGroup: "85-89", female: 205489, male: 92848, total: 298337 },
+  { ageGroup: "90-94", female: 76234, male: 26574, total: 102808 },
+  { ageGroup: "95-99", female: 18779, male: 4704, total: 23483 },
+  { ageGroup: "100+", female: 2703, male: 784, total: 3487 }
+];
+
+const census2022FallbackRows = [
+  { ageGroup: "0-4", female: 1402857, male: 1440893, total: 2843750 },
+  { ageGroup: "5-9", female: 1772183, male: 1824234, total: 3596417 },
+  { ageGroup: "10-14", female: 1786201, male: 1842705, total: 3628906 },
+  { ageGroup: "15-19", female: 1764602, male: 1794417, total: 3559019 },
+  { ageGroup: "20-24", female: 1775436, male: 1735025, total: 3510461 },
+  { ageGroup: "25-29", female: 1820852, male: 1729539, total: 3550391 },
+  { ageGroup: "30-34", female: 1784888, male: 1684646, total: 3469534 },
+  { ageGroup: "35-39", female: 1689906, male: 1598863, total: 3288769 },
+  { ageGroup: "40-44", female: 1711533, male: 1603622, total: 3315155 },
+  { ageGroup: "45-49", female: 1486233, male: 1376718, total: 2862951 },
+  { ageGroup: "50-54", female: 1278561, male: 1169613, total: 2448174 },
+  { ageGroup: "55-59", female: 1155449, male: 1038682, total: 2194131 },
+  { ageGroup: "60-64", female: 1054462, male: 923244, total: 1977706 },
+  { ageGroup: "65-69", female: 941658, male: 790896, total: 1732554 },
+  { ageGroup: "70-74", female: 793035, male: 622529, total: 1415564 },
+  { ageGroup: "75-79", female: 602502, male: 419408, total: 1021910 },
+  { ageGroup: "80-84", female: 404175, male: 241330, total: 645505 },
+  { ageGroup: "85-89", female: 237241, male: 116378, total: 353619 },
+  { ageGroup: "90-94", female: 111080, male: 45076, total: 156156 },
+  { ageGroup: "95-99", female: 30852, male: 11729, total: 42581 },
+  { ageGroup: "100+", female: 4200, male: 1334, total: 5534 }
 ];
 
 function sendJson(response, statusCode, body) {
@@ -238,6 +289,179 @@ function parseSpanishMoney(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function parseWholeNumber(value) {
+  const numeric = Number(String(value || "").replace(/[^\d-]/g, ""));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeCensusAgeGroup(label) {
+  const clean = decodeHtmlEntities(String(label || ""))
+    .replace(/\?/g, "a")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  if (/^\d+\s+y\s+m/.test(clean)) return "100+";
+
+  const range = clean.match(/^(\d+)\s+a\s+(\d+)$/);
+  if (!range) return null;
+
+  const start = Number(range[1]);
+  const end = Number(range[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (start >= 100) return "100+";
+  return `${start}-${end}`;
+}
+
+function aggregateCensusRows(rows) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const ageGroup = normalizeCensusAgeGroup(row.ageGroup || row.age);
+    if (!ageGroup) continue;
+    const female = Number(row.female || 0);
+    const male = Number(row.male || 0);
+    const total = Number(row.total || female + male);
+    const current = grouped.get(ageGroup) || { ageGroup, female: 0, male: 0, total: 0 };
+    current.female += female;
+    current.male += male;
+    current.total += total;
+    grouped.set(ageGroup, current);
+  }
+
+  return [...grouped.values()].sort((a, b) => ageGroupStart(a.ageGroup) - ageGroupStart(b.ageGroup));
+}
+
+function ageGroupStart(ageGroup) {
+  if (String(ageGroup).endsWith("+")) return Number(ageGroup.replace("+", ""));
+  return Number(String(ageGroup).split("-")[0]);
+}
+
+function summarizeCensusRows(rows) {
+  const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const sumWhere = (predicate) => rows.reduce((sum, row) => (predicate(row) ? sum + Number(row.total || 0) : sum), 0);
+  const olderFemale = rows.reduce((sum, row) => (ageGroupStart(row.ageGroup) >= 65 ? sum + Number(row.female || 0) : sum), 0);
+  const olderMale = rows.reduce((sum, row) => (ageGroupStart(row.ageGroup) >= 65 ? sum + Number(row.male || 0) : sum), 0);
+  const olderTotal = olderFemale + olderMale;
+
+  return {
+    total,
+    childrenShare: total ? (sumWhere((row) => ageGroupStart(row.ageGroup) <= 10) / total) * 100 : 0,
+    workingAgeShare: total ? (sumWhere((row) => {
+      const start = ageGroupStart(row.ageGroup);
+      return start >= 15 && start < 65;
+    }) / total) * 100 : 0,
+    olderShare: total ? (sumWhere((row) => ageGroupStart(row.ageGroup) >= 65) / total) * 100 : 0,
+    olderFemaleShare: olderTotal ? (olderFemale / olderTotal) * 100 : 0
+  };
+}
+
+function buildCensusSummary(currentRows, previousRows) {
+  const current = summarizeCensusRows(currentRows);
+  const previous = summarizeCensusRows(previousRows);
+  return {
+    totals: {
+      current: current.total,
+      previous: previous.total,
+      delta: current.total - previous.total
+    },
+    shares: {
+      children: { current: current.childrenShare, previous: previous.childrenShare, delta: current.childrenShare - previous.childrenShare },
+      workingAge: { current: current.workingAgeShare, previous: previous.workingAgeShare, delta: current.workingAgeShare - previous.workingAgeShare },
+      older: { current: current.olderShare, previous: previous.olderShare, delta: current.olderShare - previous.olderShare },
+      olderFemale: { current: current.olderFemaleShare, previous: previous.olderFemaleShare, delta: current.olderFemaleShare - previous.olderFemaleShare }
+    }
+  };
+}
+
+function extractCensusRowsFromHtml(html) {
+  const rows = [];
+  for (const match of html.matchAll(/<tr>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...match[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+      .map((cell) => decodeHtmlEntities(cell[1]).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+
+    if (cells.length < 5) continue;
+    const age = cells[1];
+    if (!/(\d+\s+a\s+\d+|\d+\s+y\s+m)/i.test(age)) continue;
+
+    const female = parseWholeNumber(cells[2]);
+    const male = parseWholeNumber(cells[3]);
+    const total = parseWholeNumber(cells[4]);
+    if (!Number.isFinite(female) || !Number.isFinite(male) || !Number.isFinite(total)) continue;
+
+    rows.push({ ageGroup: age, female, male, total });
+  }
+  return aggregateCensusRows(rows);
+}
+
+async function fetchCensus2022Rows() {
+  const form = new URLSearchParams({
+    MAIN: "WebServerMain.inl",
+    BASE: "CPV2022",
+    LANG: "ESP",
+    CODIGO: "XXUSUARIOXX",
+    ITEM: "EDADQUIN",
+    MODE: "RUN",
+    ROW: "PERSONA.EDADQUI",
+    COLUMN: "PERSONA.P02",
+    AREABREAK: "",
+    SELECTION: "ALL",
+    FILTER: "",
+    TEXT_FILTER: "",
+    FORMAT: "HTML",
+    Submit: "Ejecutar"
+  });
+
+  const response = await fetch(indecCensus2022Url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      "user-agent": "PruebaMercado local dashboard"
+    },
+    body: form
+  });
+
+  if (!response.ok) {
+    throw new Error(`Error ${response.status} al consultar Censo 2022`);
+  }
+
+  const html = await response.text();
+  const iframeMatch = html.match(/<iframe[^>]+src="([^"]+)"/i);
+  if (!iframeMatch) throw new Error("No se encontro la tabla del Censo 2022");
+
+  const iframeUrl = new URL(iframeMatch[1], "https://redatam.indec.gob.ar").toString();
+  const tableHtml = await fetchWithCache(iframeUrl, 12 * 60 * 60 * 1000, "text");
+  const rows = extractCensusRowsFromHtml(tableHtml);
+  if (!rows.length) throw new Error("No se pudieron extraer filas del Censo 2022");
+  return rows;
+}
+
+async function getCensusPayload() {
+  let currentRows = census2022FallbackRows;
+  let warning = null;
+
+  try {
+    currentRows = await fetchCensus2022Rows();
+  } catch (error) {
+    warning = error.message;
+  }
+
+  const previousRows = census2010Rows;
+  return {
+    source: "INDEC Censo 2022 y Censo 2010",
+    fetchedAt: new Date().toISOString(),
+    warning,
+    sources: {
+      current: indecCensus2022Url,
+      previous: indecCensus2010Url
+    },
+    censuses: {
+      current: { year: "2022", rows: currentRows },
+      previous: { year: "2010", rows: previousRows }
+    },
+    summary: buildCensusSummary(currentRows, previousRows)
+  };
+}
+
 function findAmountsNear(text, markers) {
   const lower = text.toLowerCase();
   for (const marker of markers) {
@@ -283,17 +507,20 @@ async function fetchDolarApiQuote(kind, name, sourceUrl) {
 }
 
 async function getDollarQuotesPayload() {
-  const [blue, bancoNacion] = await Promise.all([
+  const [blue, bancoNacion, mep, ccl, tarjeta] = await Promise.all([
     fetchDolarHoyQuote(dolarHoyBlueUrl, ["Dólar Libre", "Dólar Blue", "Dolar Blue", "Blue"], "Dólar blue")
       .catch(() => fetchDolarApiQuote("blue", "Dólar blue", dolarHoyBlueUrl)),
     fetchDolarHoyQuote(dolarHoyBnaUrl, ["Banco Nación", "Dólar Banco Nación", "Dolar Banco Nacion"], "Dólar Banco Nación")
-      .catch(() => fetchDolarApiQuote("oficial", "Dólar Banco Nación", "https://www.bna.com.ar/Personas"))
+      .catch(() => fetchDolarApiQuote("oficial", "Dólar Banco Nación", "https://www.bna.com.ar/Personas")),
+    fetchDolarApiQuote("bolsa", "Dólar MEP", "https://dolarapi.com/docs/argentina/operations/get-dolar-bolsa.html"),
+    fetchDolarApiQuote("contadoconliqui", "Dólar CCL", "https://dolarapi.com/docs/argentina/operations/get-dolar-contadoconliqui.html"),
+    fetchDolarApiQuote("tarjeta", "Dólar tarjeta", "https://dolarapi.com/docs/argentina/operations/get-dolar-tarjeta.html")
   ]);
 
   return {
-    source: "DolarHoy y Banco Nación con respaldo DolarAPI",
+    source: "DolarHoy, Banco Nación y DolarAPI",
     fetchedAt: new Date().toISOString(),
-    quotes: { blue, bancoNacion }
+    quotes: { blue, bancoNacion, mep, ccl, tarjeta }
   };
 }
 
@@ -376,6 +603,24 @@ async function getMacroPayload() {
   );
 
   const series = Object.fromEntries(entries);
+  const fiscalMarch2026 = {
+    primary: { date: "2026-03-01", value: 930284 },
+    financial: { date: "2026-03-01", value: 484789 }
+  };
+  if (series.primaryResult && !series.primaryResult.rows.some((row) => row.date === fiscalMarch2026.primary.date)) {
+    series.primaryResult.rows.push(fiscalMarch2026.primary);
+    series.primaryResult.rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    series.primaryResult.latest = series.primaryResult.rows.at(-1);
+    series.primaryResult.sourceUrl = meconFiscalMarch2026Url;
+    series.primaryResult.note = "Marzo de 2026 se complementa con el comunicado oficial de Economía mientras la serie de Datos Argentina se actualiza.";
+  }
+  if (series.financialResult && !series.financialResult.rows.some((row) => row.date === fiscalMarch2026.financial.date)) {
+    series.financialResult.rows.push(fiscalMarch2026.financial);
+    series.financialResult.rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    series.financialResult.latest = series.financialResult.rows.at(-1);
+    series.financialResult.sourceUrl = meconFiscalMarch2026Url;
+    series.financialResult.note = "Marzo de 2026 se complementa con el comunicado oficial de Economía mientras la serie de Datos Argentina se actualiza.";
+  }
   const povertyDate = series.poverty?.latest?.date || "2026-01-01";
 
   return {
@@ -396,10 +641,13 @@ async function getMacroPayload() {
         label: "Patentamientos autos 0 km",
         value: 48972,
         date: "2026-03-01",
+        previousValue: 42026,
+        previousDate: "2026-02-01",
+        monthChange: 16.53,
         change: 1.2,
         source: "ACARA",
         sourceUrl: acaraReportUrl,
-        note: "Unidades informadas para marzo de 2026; suba interanual de 1,2%."
+        note: "Unidades informadas para marzo de 2026; comparación mensual contra febrero de 2026 y suba interanual de 1,2%."
       },
       confidence: {
         label: "ICC Di Tella",
@@ -428,6 +676,11 @@ async function handleApi(requestUrl, response) {
 
   if (requestUrl.pathname === "/api/macro") {
     sendJson(response, 200, await getMacroPayload());
+    return true;
+  }
+
+  if (requestUrl.pathname === "/api/census") {
+    sendJson(response, 200, await getCensusPayload());
     return true;
   }
 

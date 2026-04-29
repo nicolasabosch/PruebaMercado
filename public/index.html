@@ -8,9 +8,9 @@
       name="description"
       content="Tablero visual y educativo sobre mercado argentino, dólares financieros y licitaciones del Tesoro."
     />
-    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=7" />
     <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script defer src="/app.js?v=2"></script>
+    <script defer src="/app.js?v=7"></script>
   </head>
   <body>
     <header class="topbar">
@@ -23,11 +23,13 @@
       </a>
 
       <nav class="nav-links" aria-label="Secciones">
+        <a href="#inicio">Inicio</a>
         <a href="#licitaciones">Licitaciones</a>
         <a href="#dolares">Dólares</a>
         <a href="#macro">Macro</a>
+        <a href="#censo">Censo</a>
         <a href="#mercado">Mercado</a>
-        <a href="#byma">BYMA</a>
+        <a href="#explorador">Explorador</a>
         <a href="#guia">Guía</a>
       </nav>
 
@@ -43,12 +45,13 @@
       </div>
     </header>
 
-    <main id="inicio">
-      <section class="dashboard band">
+    <main>
+      <section class="dashboard band page-section" id="inicio" data-page="inicio">
         <div class="section-heading dashboard-heading">
           <div>
             <p class="eyebrow">Data912 + licitaciones públicas</p>
-            <h1>Un tablero para entender el mercado argentino sin hablar en difícil.</h1>
+            <h1>Mercado Simple</h1>
+            <p class="hero-subtitle">Elegí un tema y entrá a una vista especializada, con gráficos interactivos y explicaciones pensadas para leer la Argentina sin jerga.</p>
           </div>
           <div class="status-box" aria-live="polite">
             <span class="status-dot" id="statusDot"></span>
@@ -68,9 +71,42 @@
           <i data-lucide="lightbulb" aria-hidden="true"></i>
           <span>La lectura simple aparecerá cuando carguen los datos.</span>
         </div>
+
+        <div class="landing-grid" aria-label="Accesos principales">
+          <a class="landing-card" href="#licitaciones">
+            <i data-lucide="landmark" aria-hidden="true"></i>
+            <strong>Licitaciones</strong>
+            <span>Deuda, rollover e instrumentos del Tesoro.</span>
+          </a>
+          <a class="landing-card" href="#dolares">
+            <i data-lucide="wallet-cards" aria-hidden="true"></i>
+            <strong>Dólares</strong>
+            <span>Oficial, blue, MEP, CCL y tarjeta.</span>
+          </a>
+          <a class="landing-card" href="#macro">
+            <i data-lucide="activity" aria-hidden="true"></i>
+            <strong>Macro</strong>
+            <span>Inflación, comercio exterior y resultado fiscal.</span>
+          </a>
+          <a class="landing-card" href="#censo">
+            <i data-lucide="users-round" aria-hidden="true"></i>
+            <strong>Censo</strong>
+            <span>Pirámide poblacional 2010 vs 2022.</span>
+          </a>
+          <a class="landing-card" href="#mercado">
+            <i data-lucide="chart-candlestick" aria-hidden="true"></i>
+            <strong>Mercado</strong>
+            <span>Acciones, CEDEARs, bonos y riesgo.</span>
+          </a>
+          <a class="landing-card" href="#explorador">
+            <i data-lucide="search" aria-hidden="true"></i>
+            <strong>Explorador</strong>
+            <span>Buscá tickers y compará tablas.</span>
+          </a>
+        </div>
       </section>
 
-      <section class="section-grid" id="licitaciones">
+      <section class="section-grid page-section" id="licitaciones" data-page="licitaciones">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Resultados de licitaciones</p>
@@ -125,50 +161,28 @@
         </div>
       </section>
 
-      <section class="section-grid soft-band" id="dolares">
+      <section class="section-grid soft-band page-section" id="dolares" data-page="dolares">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Dólares financieros</p>
-            <h2>MEP y CCL explicados con datos del día</h2>
+            <p class="eyebrow">Cotizaciones del dólar</p>
+            <h2>Todos los dólares importantes en una pantalla</h2>
           </div>
           <p class="plain-note">
-            Son precios implícitos: salen de comparar activos que cotizan en pesos y en dólares. Sirven como termómetro de demanda de cobertura.
+            Oficial, blue, MEP, CCL y tarjeta ordenados para comparar rápido cuál se usa en cada situación.
           </p>
         </div>
 
         <div class="quote-grid two-wide" id="officialDollarCards">
           <article class="quote-card skeleton"></article>
           <article class="quote-card skeleton"></article>
+          <article class="quote-card skeleton"></article>
+          <article class="quote-card skeleton"></article>
+          <article class="quote-card skeleton"></article>
         </div>
 
-        <div class="panel">
-          <div class="panel-title">
-            <span>MEP por instrumento con más volumen</span>
-            <button class="ghost-button" type="button" data-help="mepHelp" aria-label="Qué es MEP">
-              <i data-lucide="help-circle" aria-hidden="true"></i>
-            </button>
-          </div>
-          <p class="chart-help" id="mepHelp">
-            MEP es una forma legal de transformar pesos en dólares usando bonos o CEDEARs dentro del mercado local.
-          </p>
-          <div class="chart" id="mepChart"></div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-title">
-            <span>CCL por activos más operados</span>
-            <button class="ghost-button" type="button" data-help="cclHelp" aria-label="Qué es CCL">
-              <i data-lucide="help-circle" aria-hidden="true"></i>
-            </button>
-          </div>
-          <p class="chart-help" id="cclHelp">
-            CCL compara precios de activos locales contra su versión afuera. Se mira cuando importan la salida o entrada de dólares financieros.
-          </p>
-          <div class="chart" id="cclChart"></div>
-        </div>
       </section>
 
-      <section class="section-grid" id="macro">
+      <section class="section-grid page-section" id="macro" data-page="macro">
         <div class="section-heading">
           <div>
             <p class="eyebrow">INDEC, MECON, ACARA y Di Tella</p>
@@ -188,11 +202,20 @@
 
         <div class="panel two-wide">
           <div class="panel-title">
-            <span>Inflación mensual histórica</span>
+            <span>Inflación mensual comparada con meses previos</span>
             <a class="source-link" href="https://datos.gob.ar/series/api/series/?ids=145.3_INGNACUAL_DICI_M_38" target="_blank" rel="noreferrer">INDEC</a>
           </div>
           <p class="chart-help visible" id="inflationNarrative">Cuando carga el dato se muestra el último IPC y si viene acelerando o aflojando.</p>
           <div class="chart" id="inflationChart"></div>
+        </div>
+
+        <div class="panel two-wide">
+          <div class="panel-title">
+            <span>Inflación interanual y variación</span>
+            <a class="source-link" href="https://datos.gob.ar/series/api/series/?ids=145.3_INGNACUAL_DICI_M_38" target="_blank" rel="noreferrer">INDEC</a>
+          </div>
+          <p class="chart-help visible" id="inflationAnnualNarrative">Muestra cuánto subieron los precios contra el mismo mes del año anterior y si esa tasa viene bajando o subiendo.</p>
+          <div class="chart" id="inflationAnnualChart"></div>
         </div>
 
         <div class="panel">
@@ -209,19 +232,47 @@
             <span>Resultado fiscal y financiero</span>
             <a class="source-link" href="https://datos.gob.ar/series/api/search/?q=resultado%20financiero%20IMIG" target="_blank" rel="noreferrer">MECON</a>
           </div>
-          <p class="chart-help visible">Primario mira ingresos menos gastos antes de intereses. Financiero incluye intereses de deuda.</p>
+          <p class="chart-help visible" id="fiscalNarrative">Primario mira ingresos menos gastos antes de intereses. Financiero incluye intereses de deuda.</p>
           <div class="chart" id="fiscalChart"></div>
+        </div>
+
+      </section>
+
+      <section class="section-grid soft-band page-section" id="censo" data-page="censo">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Censos nacionales</p>
+            <h2>Como cambio la poblacion argentina entre 2010 y 2022</h2>
+          </div>
+          <p class="plain-note">
+            La piramide poblacional ordena a la gente por edad y sexo. Sirve para ver si el pais se rejuvenece, envejece o se ensancha en edades medias.
+          </p>
+        </div>
+
+        <div class="auction-summary" id="censusSummary">
+          <article class="metric-card skeleton"></article>
+          <article class="metric-card skeleton"></article>
+          <article class="metric-card skeleton"></article>
+          <article class="metric-card skeleton"></article>
         </div>
 
         <div class="panel two-wide">
           <div class="panel-title">
-            <span>Cómo leer estos datos</span>
+            <span>Piramide poblacional comparada</span>
+            <a class="source-link" href="https://redatam.indec.gob.ar/binarg/RpWebStats.exe/CrossTab?BASE=CPV2022&ITEM=EDADQUIN&lang=ESP" target="_blank" rel="noreferrer">INDEC</a>
           </div>
-          <div class="macro-explain" id="macroExplain"></div>
+          <div id="censusPyramids"></div>
+        </div>
+
+        <div class="panel two-wide">
+          <div class="panel-title">
+            <span>Lectura simple del cambio</span>
+          </div>
+          <div class="macro-explain" id="censusNarrative"></div>
         </div>
       </section>
 
-      <section class="section-grid" id="mercado">
+      <section class="section-grid page-section" id="mercado" data-page="mercado">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Acciones, CEDEARs y bonos</p>
@@ -253,28 +304,6 @@
           <div class="table-wrap" id="marketTable"></div>
         </div>
 
-        <div class="panel two-wide">
-          <div class="panel-title controls-title">
-            <span>Histórico para mirar tendencia</span>
-            <label class="select-label">
-              <span>Activo</span>
-              <select id="historySelect">
-                <option value="bonds/AL30">AL30, bono soberano</option>
-                <option value="bonds/GD30">GD30, bono soberano</option>
-                <option value="stocks/GGAL">GGAL, banco local</option>
-                <option value="stocks/YPFD">YPFD, energía</option>
-                <option value="cedears/AAPL">AAPL, CEDEAR</option>
-                <option value="cedears/MELI">MELI, CEDEAR</option>
-              </select>
-            </label>
-          </div>
-          <p class="chart-help" id="historyNarrative">Elegí un activo para ver precio, volumen y volatilidad reciente.</p>
-          <div class="history-grid">
-            <div class="chart" id="priceChart"></div>
-            <div class="chart" id="volumeChart"></div>
-          </div>
-        </div>
-
         <div class="panel two-wide risk-panel">
           <div>
             <div class="panel-title">
@@ -288,7 +317,7 @@
         </div>
       </section>
 
-      <section class="section-grid soft-band" id="explorador">
+      <section class="section-grid soft-band page-section" id="explorador" data-page="explorador">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Explorador</p>
@@ -321,73 +350,18 @@
         </div>
       </section>
 
-      <section class="section-grid" id="byma">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">BYMA oficial</p>
-            <h2>Qué aporta la API de Bolsas y Mercados Argentinos</h2>
-          </div>
-          <p class="plain-note">
-            BYMA es la infraestructura central del mercado local. Sus APIs oficiales permiten pasar de un tablero educativo a una fuente institucional con contrato, límites y documentación formal.
-          </p>
-        </div>
-
-        <div class="byma-hero two-wide">
-          <div>
-            <span class="source-badge">Fuente oficial</span>
-            <h3>Market Data, instrumentos, noticias, índices y mercado primario</h3>
-            <p>
-              La web de BYMA describe APIs para precios en distintas temporalidades, características de instrumentos,
-              noticias relevantes, índices propios y colocaciones primarias. Algunas opciones tienen planes sin costo,
-              pero el acceso se gestiona desde el portal o por contacto con BYMA.
-            </p>
-          </div>
-          <div class="byma-actions">
-            <a class="icon-button link-button" href="https://www.byma.com.ar/byma-apis" target="_blank" rel="noreferrer">
-              <i data-lucide="external-link" aria-hidden="true"></i>
-              APIs BYMA
-            </a>
-            <a class="icon-button link-button" href="https://www.byma.com.ar/productos/productos-de-datos/market-data/apis" target="_blank" rel="noreferrer">
-              <i data-lucide="database" aria-hidden="true"></i>
-              Market Data
-            </a>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-title">
-            <span>Catálogo útil para este tablero</span>
-          </div>
-          <div class="api-catalog" id="bymaCatalog"></div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-title">
-            <span>Planes de Market Data</span>
-          </div>
-          <div class="plans-grid" id="bymaPlans"></div>
-        </div>
-
-        <div class="panel two-wide">
-          <div class="panel-title">
-            <span>Cómo lo conectaría cuando tengas acceso</span>
-          </div>
-          <div class="integration-flow" id="bymaFlow"></div>
-        </div>
-      </section>
-
-      <section class="guide band" id="guia">
+      <section class="guide band page-section" id="guia" data-page="guia">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Explicaciones</p>
             <h2>Diccionario mínimo para leer el tablero sin conocimientos previos</h2>
           </div>
           <p class="plain-note">
-            Cada concepto está escrito como una traducción práctica: qué es, por qué importa y qué mirar en el gráfico.
+        Cada concepto está escrito como una traducción práctica: qué es, por qué importa y qué mirar.
           </p>
         </div>
 
-        <div class="guide-grid" id="guideGrid"></div>
+        <div class="guide-grid guide-grid-open" id="guideGrid"></div>
       </section>
     </main>
 
@@ -396,8 +370,9 @@
         Datos de mercado vía <a href="https://data912.com/#/" target="_blank" rel="noreferrer">Data912</a>.
         Licitaciones vía <a href="https://licitaciones.ar/" target="_blank" rel="noreferrer">licitaciones.ar</a>
         y Ministerio de Economía. Macro vía INDEC, Datos Argentina, MECON, ACARA y Di Tella.
-        Uso educativo, no asesoramiento financiero.
+        Uso educativo, no asesoramiento financiero. Por Nicolas Abosch.
       </p>
     </footer>
+    <div class="chart-tooltip" id="chartTooltip" role="status" aria-live="polite"></div>
   </body>
 </html>
