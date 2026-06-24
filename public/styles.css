@@ -1387,3 +1387,263 @@ details p {
     height: 30px;
   }
 }
+
+/* ===== Interacción y movimiento ===== */
+
+/* Entrada de cada página al navegar entre secciones */
+.page-section.active-page {
+  animation: page-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Barras verticales: crecen desde la base */
+.bar-v {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: bar-grow-y 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes bar-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* Barras horizontales: crecen desde el eje cero (origen seteado inline por signo) */
+.bar-h {
+  transform-box: fill-box;
+  animation: bar-grow-x 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes bar-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Barras con signo o agrupadas: aparecen con un leve ascenso */
+.bar-fade {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bar-fade 0.5s ease both;
+}
+
+@keyframes bar-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.value-label {
+  font-weight: 700;
+}
+
+.value-label-inside {
+  fill: #fff;
+}
+
+/* Donut: aparición suave y resalte del segmento al pasar el mouse */
+.donut-chart {
+  animation: fade-in 0.5s ease both;
+}
+
+.donut-seg {
+  transition: stroke-width 0.18s ease;
+}
+
+.donut-seg:hover {
+  stroke-width: 17;
+}
+
+/* Línea: el trazo se dibuja y el área se desvanece al entrar */
+.line-area {
+  animation: fade-in 1.1s ease both;
+}
+
+.line-path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: line-draw 1.1s ease forwards;
+}
+
+@keyframes line-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Crosshair interactivo del gráfico de líneas */
+.line-hit {
+  cursor: crosshair;
+}
+
+.line-guide {
+  stroke: var(--teal);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.line-dot {
+  opacity: 0;
+  transition: opacity 0.15s ease, r 0.15s ease;
+}
+
+.line-point:hover .line-guide {
+  opacity: 0.55;
+}
+
+.line-point:hover .line-dot {
+  opacity: 1;
+  r: 6;
+}
+
+/* Tarjetas: elevación y borde de acento al pasar el mouse */
+.kpi-card,
+.metric-card,
+.quote-card,
+.macro-card,
+.guide-card,
+.instrument-card,
+.risk-card,
+.landing-card,
+.legend-row {
+  transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.18s ease;
+}
+
+.kpi-card:hover,
+.metric-card:hover,
+.quote-card:hover,
+.macro-card:hover,
+.guide-card:hover,
+.instrument-card:hover,
+.risk-card:hover,
+.landing-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--teal) 55%, var(--card-border));
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+}
+
+.legend-row:hover {
+  border-color: color-mix(in srgb, var(--teal) 45%, var(--line));
+}
+
+.panel {
+  transition: border-color 0.18s ease, box-shadow 0.22s ease;
+}
+
+.panel:hover {
+  border-color: color-mix(in srgb, var(--teal) 26%, var(--card-border));
+}
+
+/* Control segmentado del mercado */
+.segment {
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+}
+
+.segment:hover {
+  border-color: var(--teal);
+  color: var(--ink);
+}
+
+.segment:active {
+  transform: translateY(1px);
+}
+
+/* Estado de carga: punto que late y botón de refresco que gira */
+.status-dot:not(.ready):not(.error) {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 60%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+.icon-button.is-loading svg {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Foco accesible y barras de scroll discretas */
+:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--teal) 40%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--teal) 35%, transparent);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--teal) 55%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .line-path {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+}

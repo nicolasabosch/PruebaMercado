@@ -21,6 +21,8 @@ const indecCensus2022Url = "https://redatam.indec.gob.ar/binarg/RpWebStats.exe/C
 const indecCensus2010Url = "https://biblioteca.indec.gob.ar/bases/minde/1c2010b2t2.pdf";
 
 const memoryCache = new Map();
+const inFlight = new Map();
+const DEFAULT_TIMEOUT_MS = 8000;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -115,34 +117,85 @@ function sendText(response, statusCode, text) {
   response.end(text);
 }
 
-function getCached(key) {
-  const cached = memoryCache.get(key);
-  if (!cached || cached.expiresAt < Date.now()) return null;
-  return cached.value;
+function setCacheEntry(key, value, ttlMs, staleMs) {
+  const now = Date.now();
+  memoryCache.set(key, {
+    value,
+    freshUntil: now + ttlMs,
+    staleUntil: now + ttlMs + staleMs
+  });
 }
 
-function setCached(key, value, ttlMs) {
-  memoryCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+// Caché genérica con dos mejoras clave de rendimiento:
+//  - de-duplicación: varias requests al mismo recurso comparten un solo fetch.
+//  - stale-while-revalidate: una vez vencido el TTL se devuelve el valor cacheado
+//    al instante y se dispara UNA actualización en segundo plano. Así el tablero
+//    nunca vuelve a quedar bloqueado esperando a una fuente lenta tras la primera
+//    carga exitosa.
+async function withCache(key, ttlMs, producer, { staleMs = ttlMs * 8 } = {}) {
+  const now = Date.now();
+  const entry = memoryCache.get(key);
+
+  if (entry && entry.freshUntil > now) return entry.value;
+
+  if (entry && entry.staleUntil > now) {
+    if (!inFlight.has(key)) refreshCache(key, ttlMs, producer, staleMs).catch(() => {});
+    return entry.value;
+  }
+
+  return refreshCache(key, ttlMs, producer, staleMs);
 }
 
-async function fetchWithCache(url, ttlMs, responseType = "json") {
-  const cached = getCached(url);
-  if (cached) return cached;
+function refreshCache(key, ttlMs, producer, staleMs) {
+  const pending = inFlight.get(key);
+  if (pending) return pending;
 
-  const response = await fetch(url, {
+  const promise = (async () => {
+    try {
+      const value = await producer();
+      setCacheEntry(key, value, ttlMs, staleMs);
+      return value;
+    } finally {
+      inFlight.delete(key);
+    }
+  })();
+
+  inFlight.set(key, promise);
+  return promise;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Tiempo de espera agotado (${timeoutMs} ms) al consultar ${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchRemote(url, responseType, timeoutMs) {
+  const response = await fetchWithTimeout(url, {
     headers: {
       accept: responseType === "json" ? "application/json" : "text/html, text/plain;q=0.9, */*;q=0.8",
       "user-agent": "PruebaMercado local dashboard"
     }
-  });
+  }, timeoutMs);
 
   if (!response.ok) {
     throw new Error(`Error ${response.status} al consultar ${url}`);
   }
 
-  const value = responseType === "json" ? await response.json() : await response.text();
-  setCached(url, value, ttlMs);
-  return value;
+  return responseType === "json" ? await response.json() : await response.text();
+}
+
+function fetchWithCache(url, ttlMs, responseType = "json", timeoutMs = DEFAULT_TIMEOUT_MS) {
+  return withCache(url, ttlMs, () => fetchRemote(url, responseType, timeoutMs));
 }
 
 function isAllowedData912Path(pathname) {
@@ -234,13 +287,19 @@ async function getAuctionPayload() {
     const auctions = extractAuctionsFromHtml(html);
     const regular = auctions.filter((item) => item?.date && Number(item.totalAdjudicatedARS || 0) > 0);
     const latest = regular[0] || fallbackAuctions[0];
+    // La última licitación a veces llega sin desglose por instrumento. Para que la
+    // composición y la explicación no queden vacías, usamos la más reciente que sí
+    // lo tenga, manteniendo los KPIs con el dato realmente más nuevo.
+    const detailed = regular.find((item) => (item.instruments || []).length > 0) || latest;
 
     return {
       source: "licitaciones.ar, con datos del Ministerio de Economía",
       sourceUrl: auctionSourceUrl,
       fetchedAt: new Date().toISOString(),
       latest,
-      typeTotals: getAuctionTypeTotals(latest),
+      detailed,
+      detailedIsLatest: detailed === latest,
+      typeTotals: getAuctionTypeTotals(detailed),
       rolloverSeries: getRolloverSeries(regular),
       items: regular.slice(0, 24)
     };
@@ -252,6 +311,8 @@ async function getAuctionPayload() {
       fetchedAt: new Date().toISOString(),
       warning: error.message,
       latest,
+      detailed: latest,
+      detailedIsLatest: true,
       typeTotals: getAuctionTypeTotals(latest),
       rolloverSeries: getRolloverSeries(fallbackAuctions),
       items: fallbackAuctions
@@ -411,14 +472,14 @@ async function fetchCensus2022Rows() {
     Submit: "Ejecutar"
   });
 
-  const response = await fetch(indecCensus2022Url, {
+  const response = await fetchWithTimeout(indecCensus2022Url, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
       "user-agent": "PruebaMercado local dashboard"
     },
     body: form
-  });
+  }, 14000);
 
   if (!response.ok) {
     throw new Error(`Error ${response.status} al consultar Censo 2022`);
@@ -435,12 +496,19 @@ async function fetchCensus2022Rows() {
   return rows;
 }
 
+function getCensus2022Rows() {
+  // El POST a Redatam tarda ~10 s y antes se repetía en cada request. Ahora el
+  // resultado vive en caché 12 h (con stale-while-revalidate), así que solo la
+  // primera carga paga ese costo y el resto responde al instante.
+  return withCache("census:2022-rows", 12 * 60 * 60 * 1000, fetchCensus2022Rows);
+}
+
 async function getCensusPayload() {
   let currentRows = census2022FallbackRows;
   let warning = null;
 
   try {
-    currentRows = await fetchCensus2022Rows();
+    currentRows = await getCensus2022Rows();
   } catch (error) {
     warning = error.message;
   }
@@ -730,6 +798,18 @@ const server = createServer(async (request, response) => {
   }
 });
 
+function warmCaches() {
+  // Dispara las fuentes lentas (sobre todo el censo) al arrancar para que la
+  // caché ya esté caliente cuando llegue el primer visitante.
+  Promise.allSettled([
+    getCensusPayload(),
+    getAuctionPayload(),
+    getDollarQuotesPayload(),
+    getMacroPayload()
+  ]).catch(() => {});
+}
+
 server.listen(port, () => {
   console.log(`Prueba Mercado listo en http://localhost:${port}`);
+  warmCaches();
 });

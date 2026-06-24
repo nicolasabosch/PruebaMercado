@@ -234,45 +234,38 @@ function positionChartTooltip(event, tooltip) {
 async function loadAllData() {
   setStatus("Consultando Data912 y licitaciones...", "loading");
   state.errors = [];
+  setRefreshLoading(true);
 
-  const jobs = [
-    ["mep", () => fetchData912("live/mep")],
-    ["ccl", () => fetchData912("live/ccl")],
-    ["arg_stocks", () => fetchData912("live/arg_stocks")],
-    ["arg_cedears", () => fetchData912("live/arg_cedears")],
-    ["arg_bonds", () => fetchData912("live/arg_bonds")],
-    ["arg_notes", () => fetchData912("live/arg_notes")],
-    ["auctions", fetchAuctions],
-    ["dollarQuotes", fetchDollarQuotes],
-    ["macro", fetchMacro],
-    ["census", fetchCensus],
-    ["risk", () => fetchData912("eod/volatilities/GGAL")]
+  // Cada bloque resuelve y pinta su propia sección apenas llega el dato, así la
+  // página deja de quedar bloqueada esperando a la fuente más lenta (el censo).
+  const tasks = [
+    (async () => {
+      await Promise.allSettled([
+        loadLive("mep"),
+        loadLive("ccl"),
+        loadLive("arg_stocks"),
+        loadLive("arg_cedears"),
+        loadLive("arg_bonds"),
+        loadLive("arg_notes")
+      ]);
+      renderDashboard();
+      renderMarketSection();
+      renderExplorer();
+    })(),
+    loadSection(fetchAuctions, "auctions", () => {
+      renderAuctions();
+      renderDashboard();
+    }),
+    loadSection(fetchDollarQuotes, "dollarQuotes", () => {
+      renderDollars();
+      renderDashboard();
+    }),
+    loadSection(fetchMacro, "macro", renderMacro),
+    loadSection(fetchCensus, "census", renderCensus),
+    loadSection(() => fetchData912("eod/volatilities/GGAL"), "risk", renderRisk)
   ];
 
-  const results = await Promise.allSettled(jobs.map(async ([key, job]) => [key, await job()]));
-
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      const [key, value] = result.value;
-      if (key === "auctions") state.auctions = value;
-      else if (key === "dollarQuotes") state.dollarQuotes = value;
-      else if (key === "macro") state.macro = value;
-      else if (key === "census") state.census = value;
-      else if (key === "risk") state.risk = value;
-      else state.live[key] = normalizeRows(value);
-    } else {
-      state.errors.push(result.reason?.message || "Error desconocido");
-    }
-  }
-
-  renderDashboard();
-  renderAuctions();
-  renderDollars();
-  renderMacro();
-  renderCensus();
-  renderMarketSection();
-  renderRisk();
-  renderExplorer();
+  await Promise.allSettled(tasks);
 
   if (state.errors.length) {
     setStatus("Listo con algunas fuentes caídas", "error");
@@ -280,7 +273,31 @@ async function loadAllData() {
     setStatus("Datos actualizados", "ready");
   }
   $("#lastUpdated").textContent = timeFormat.format(new Date());
+  setRefreshLoading(false);
   refreshIcons();
+}
+
+async function loadLive(key) {
+  try {
+    state.live[key] = normalizeRows(await fetchData912(`live/${key}`));
+  } catch (error) {
+    state.errors.push(error.message);
+  }
+}
+
+async function loadSection(fetcher, key, render) {
+  try {
+    state[key] = await fetcher();
+  } catch (error) {
+    state.errors.push(error.message);
+  } finally {
+    render();
+    refreshIcons();
+  }
+}
+
+function setRefreshLoading(isLoading) {
+  $("#refreshButton")?.classList.toggle("is-loading", isLoading);
 }
 
 async function fetchData912(path) {
@@ -441,8 +458,9 @@ function renderAuctions() {
     labelFormatter: shortDate
   });
 
-  renderDebtComposition(payload.typeTotals || [], latest.totalAdjudicatedARS || 0);
-  renderLatestAuctionExplanation(latest);
+  const detailed = payload.detailed || latest;
+  renderDebtComposition(payload.typeTotals || [], detailed.totalAdjudicatedARS || 0);
+  renderLatestAuctionExplanation(detailed, payload.detailedIsLatest !== false);
 
   renderTable($("#auctionTable"), payload.items || [], [
     { label: "Fecha", value: (row) => formatDate(row.date) },
@@ -516,7 +534,7 @@ function renderDonutChart(slices, { centerTop, centerBottom }) {
     const dash = `${length.toFixed(2)} ${(circumference - length).toFixed(2)}`;
     const tooltip = `<strong>${escapeHtml(debtFamilyLabels[slice.family] || slice.family)}</strong><span>${escapeHtml(formatPercent(slice.percent))}</span><span>${escapeHtml(formatAuctionMoney(slice.value))}</span>`;
     const circle = `
-      <circle class="chart-hotspot" ${tooltipAttribute(tooltip)} cx="50" cy="50" r="${radius}" fill="none" stroke="${slice.color}" stroke-width="13"
+      <circle class="chart-hotspot donut-seg" ${tooltipAttribute(tooltip)} cx="50" cy="50" r="${radius}" fill="none" stroke="${slice.color}" stroke-width="13"
         stroke-dasharray="${dash}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 50 50)"></circle>
     `;
     offset += length;
@@ -533,7 +551,7 @@ function renderDonutChart(slices, { centerTop, centerBottom }) {
   `;
 }
 
-function renderLatestAuctionExplanation(latest) {
+function renderLatestAuctionExplanation(latest, isLatest = true) {
   const container = $("#latestAuctionExplanation");
   const instruments = normalizeRows(latest?.instruments)
     .filter((item) => Number.isFinite(Number(item.effectiveValue)))
@@ -548,10 +566,13 @@ function renderLatestAuctionExplanation(latest) {
   const uniqueTypes = [...new Set(instruments.map((item) => item.type || "otros"))];
   const fixedShare = getFamilyShare(instruments, "fixed_rate");
   const inflationShare = getFamilyShare(instruments, "inflation");
+  const title = isLatest
+    ? "Explicación simple de la última licitación"
+    : "Explicación de la última licitación con desglose";
 
   container.innerHTML = `
     <div class="panel-title">
-      <span>Explicación simple de la última licitación</span>
+      <span>${escapeHtml(title)}</span>
       <small>${escapeHtml(formatDate(latest.date))}</small>
     </div>
     <div class="auction-reading">
@@ -963,7 +984,9 @@ function renderPopulationPyramidOverlay(previousRows, currentRows, previousYear,
 }
 
 function renderInflationChart(rows) {
-  const cleanRows = rows.filter((row) => Number.isFinite(Number(row.value))).slice(-24);
+  // 13 meses = el mes actual más el año previo. Con 24 las etiquetas de % y de
+  // fecha se encimaban y el gráfico quedaba ilegible.
+  const cleanRows = rows.filter((row) => Number.isFinite(Number(row.value))).slice(-13);
   const rowsWithPrevious = cleanRows.map((row, index) => ({
     ...row,
     previousValue: index > 0 ? cleanRows[index - 1].value : null
@@ -975,7 +998,7 @@ function renderInflationChart(rows) {
     formatter: formatPercent,
     color: "#f2b84b",
     labelFormatter: shortDate,
-    maxItems: 24,
+    maxItems: 13,
     ariaLabel: "Inflacion mensual comparada con meses previos",
     tooltipFormatter: (row, value) => {
       const previous = row.previousValue === null ? null : Number(row.previousValue);
@@ -1011,7 +1034,10 @@ function renderAnnualInflationChart(rows) {
     });
   }
 
-  const visibleRows = annualRows.slice(-18);
+  // Últimos 13 meses: muestra este mes contra el mismo mes del año pasado. Con 18
+  // meses los valores viejos (interanual mucho más alto) dejaban la escala
+  // distorsionada y el resto de la línea quedaba pegado al piso.
+  const visibleRows = annualRows.slice(-13);
   renderLineChart($("#inflationAnnualChart"), visibleRows, {
     xKey: "date",
     yKey: "annual",
@@ -1058,7 +1084,7 @@ function renderSignedVerticalBarChart(container, data, options) {
       ? options.tooltipFormatter(row, value)
       : `<strong>${escapeHtml(formatMonth(row.date))}</strong><span>${escapeHtml(options.formatter(value))}</span>`;
     return `
-      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="5" fill="${value >= 0 ? "#4ad080" : "#ff6b6b"}"></rect>
+      <rect class="chart-hotspot bar-fade" style="animation-delay:${index * 35}ms" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="5" fill="${value >= 0 ? "#4ad080" : "#ff6b6b"}"></rect>
       <text x="${x + barWidth / 2}" y="${height - 28}" text-anchor="middle" class="chart-label">${escapeSvg(shortText(label, 8))}</text>
     `;
   }).join("");
@@ -1133,7 +1159,7 @@ function renderGroupedBarChart(container, data, options) {
       const y = value >= 0 ? zeroY - heightValue : zeroY;
       const tooltip = `<strong>${escapeHtml(formatMonth(row.date))}</strong><span>${escapeHtml(serie.label)}: ${escapeHtml(options.formatter(value))}</span>`;
       return `
-        <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="4" fill="${serie.color}"></rect>
+        <rect class="chart-hotspot bar-fade" style="animation-delay:${index * 35}ms" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="4" fill="${serie.color}"></rect>
       `;
     }).join("");
     return `
@@ -1346,9 +1372,9 @@ function renderVerticalBarChart(container, data, options) {
       ? options.tooltipFormatter(row, value)
       : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(options.formatter(value))}</span>`;
     return `
-      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="5" fill="${color || "#007f79"}"></rect>
+      <rect class="chart-hotspot bar-v" style="animation-delay:${index * 35}ms" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="5" fill="${color || "#007f79"}"></rect>
       <text x="${x + barWidth / 2}" y="${height - 28}" text-anchor="middle" class="chart-label">${escapeSvg(shortText(label, 9))}</text>
-      <text x="${x + barWidth / 2}" y="${Math.max(14, y - 7)}" text-anchor="middle" class="chart-label">${escapeSvg(options.formatter(value))}</text>
+      <text x="${x + barWidth / 2}" y="${Math.max(14, y - 7)}" text-anchor="middle" class="chart-label value-label">${escapeSvg(options.formatter(value))}</text>
     `;
   }).join("");
 
@@ -1385,23 +1411,39 @@ function renderHorizontalBarChart(container, data, options) {
   const plotWidth = width - margin.left - margin.right;
   const zeroX = margin.left + plotWidth / 2;
   const maxAbs = Math.max(...rows.map((row) => Math.abs(Number(row[options.valueKey]))), 1);
+  const maxBar = Math.max(8, plotWidth / 2 - 8);
 
   const bars = rows.map((row, index) => {
     const value = Number(row[options.valueKey]);
     const y = margin.top + index * rowHeight + 5;
-    const length = Math.max(2, (Math.abs(value) / maxAbs) * (plotWidth / 2 - 8));
-    const x = value >= 0 ? zeroX : zeroX - length;
-    const color = value >= 0 ? "#18825c" : "#bf3b3b";
-    const textX = value >= 0 ? zeroX + length + 6 : zeroX - length - 6;
-    const anchor = value >= 0 ? "start" : "end";
+    const length = Math.max(2, (Math.abs(value) / maxAbs) * maxBar);
+    const isPositive = value >= 0;
+    const x = isPositive ? zeroX : zeroX - length;
+    const color = isPositive ? "#18825c" : "#bf3b3b";
     const label = row[options.labelKey];
+    const valueText = options.formatter(value);
+    // Si la barra es larga, el % va DENTRO (texto blanco) para no acercarse al
+    // ticker. Si es corta, va afuera junto al tip, pero ahí la barra queda cerca
+    // del centro, así que tampoco toca el nombre. De este modo nunca se pisan.
+    const estLabelWidth = valueText.length * 7 + 10;
+    const inside = length > estLabelWidth;
+    let textX;
+    let anchor;
+    if (isPositive) {
+      textX = inside ? x + length - 8 : x + length + 6;
+      anchor = inside ? "end" : "start";
+    } else {
+      textX = inside ? x + 8 : x - 6;
+      anchor = inside ? "start" : "end";
+    }
+    const labelClass = inside ? "value-label value-label-inside" : "value-label";
     const tooltip = options.tooltipFormatter
       ? options.tooltipFormatter(row, value)
-      : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(options.formatter(value))}</span>`;
+      : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(valueText)}</span>`;
     return `
       <text x="${margin.left - 10}" y="${y + 12}" text-anchor="end" class="chart-label">${escapeSvg(shortText(label, 10))}</text>
-      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${length}" height="16" rx="5" fill="${color}"></rect>
-      <text x="${textX}" y="${y + 12}" text-anchor="${anchor}" class="chart-label">${escapeSvg(options.formatter(value))}</text>
+      <rect class="chart-hotspot bar-h" style="transform-origin:${isPositive ? "left" : "right"} center;animation-delay:${index * 35}ms" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${length}" height="16" rx="5" fill="${color}"></rect>
+      <text x="${textX}" y="${y + 12}" text-anchor="${anchor}" class="chart-label ${labelClass}">${escapeSvg(valueText)}</text>
     `;
   }).join("");
 
@@ -1426,8 +1468,13 @@ function renderLineChart(container, data, options) {
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const values = rows.map((row) => Number(row[options.yKey]));
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  // Margen del 12% arriba y abajo para que la línea no quede pegada a los bordes
+  // y se lea la pendiente real en vez de un acantilado contra el piso.
+  const pad = (rawMax - rawMin || Math.abs(rawMax) || 1) * 0.12;
+  const minValue = rawMin - pad;
+  const maxValue = rawMax + pad;
   const range = maxValue - minValue || 1;
   const points = rows.map((row, index) => {
     const x = margin.left + (index / (rows.length - 1)) * plotWidth;
@@ -1438,22 +1485,36 @@ function renderLineChart(container, data, options) {
   const area = `${path} L ${margin.left + plotWidth} ${margin.top + plotHeight} L ${margin.left} ${margin.top + plotHeight} Z`;
   const first = rows[0];
   const last = rows[rows.length - 1];
-  const hotspots = points.map(([x, y, row]) => {
+  const plotTop = margin.top;
+  const gap = plotWidth / Math.max(1, rows.length - 1);
+
+  // Cada punto es un grupo con una guía vertical, un punto y una zona de captura
+  // ancha. Al pasar el cursor por la franja se enciende el crosshair y el dato,
+  // que hace al gráfico mucho más fácil de leer punto a punto.
+  const interactivePoints = points.map(([x, y, row]) => {
     const value = Number(row[options.yKey]);
     const label = options.xFormatter ? options.xFormatter(row[options.xKey]) : formatMonth(row[options.xKey]);
     const tooltip = options.tooltipFormatter
       ? options.tooltipFormatter(row, value)
       : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(options.label)}: ${escapeHtml(options.formatter(value))}</span>`;
-    return `<circle class="chart-hotspot" ${tooltipAttribute(tooltip)} cx="${x}" cy="${y}" r="8" fill="transparent" stroke="transparent"></circle>`;
+    const hitX = Math.max(margin.left, x - gap / 2);
+    const hitW = Math.max(1, Math.min(width - margin.right, x + gap / 2) - hitX);
+    return `
+      <g class="line-point" ${tooltipAttribute(tooltip)}>
+        <line class="line-guide" x1="${x.toFixed(2)}" x2="${x.toFixed(2)}" y1="${plotTop}" y2="${(margin.top + plotHeight).toFixed(2)}"></line>
+        <circle class="line-dot" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="4" fill="${options.color}"></circle>
+        <rect class="line-hit" x="${hitX.toFixed(2)}" y="${plotTop}" width="${hitW.toFixed(2)}" height="${plotHeight}" fill="transparent"></rect>
+      </g>
+    `;
   }).join("");
 
   container.innerHTML = `
     <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(options.label)}">
       ${gridLines(width, height, margin)}
-      <path d="${area}" fill="${options.color}" opacity="0.12"></path>
-      <path d="${path}" fill="none" stroke="${options.color}" stroke-width="3"></path>
+      <path class="line-area" d="${area}" fill="${options.color}" opacity="0.12"></path>
+      <path class="line-path" pathLength="1" d="${path}" fill="none" stroke="${options.color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></path>
       <circle cx="${points.at(-1)[0]}" cy="${points.at(-1)[1]}" r="5" fill="${options.color}"></circle>
-      ${hotspots}
+      ${interactivePoints}
       <text x="${margin.left}" y="${height - 18}" class="chart-label">${escapeSvg(shortDate(first[options.xKey]))}</text>
       <text x="${width - margin.right}" y="${height - 18}" text-anchor="end" class="chart-label">${escapeSvg(shortDate(last[options.xKey]))}</text>
       <text x="${margin.left}" y="16" class="chart-label">${escapeSvg(options.label)}: ${escapeSvg(options.formatter(Number(last[options.yKey])))}</text>
