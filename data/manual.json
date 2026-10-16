@@ -1,24 +1,24 @@
 {
   "indigence": {
     "label": "Indigencia, personas",
-    "value": 6.3,
-    "date": "2025-07-01",
+    "value": 7.5,
+    "date": "2026-01-01",
     "maxAgeDays": 300,
     "source": "INDEC, informe pobreza e indigencia",
-    "sourceUrl": "https://www.indec.gob.ar/uploads/informesdeprensa/eph_pobreza_03_269225CA3217.pdf",
-    "note": "La serie pública de Datos Argentina cubre pobreza continua; el último dato de indigencia cargado a mano es del informe oficial del segundo semestre de 2025."
+    "sourceUrl": "https://www.indec.gob.ar/uploads/informesdeprensa/eph_pobreza_09_2670733F4C4D.pdf",
+    "note": "Informe oficial del primer semestre de 2026: indigencia de 7,5% de las personas, contra 6,3% del segundo semestre de 2025."
   },
   "cars": {
     "label": "Patentamientos autos 0 km",
-    "value": 48972,
-    "date": "2026-03-01",
+    "value": 49814,
+    "date": "2026-09-01",
     "maxAgeDays": 75,
-    "previousValue": 42026,
-    "previousDate": "2026-02-01",
-    "monthChange": 16.53,
-    "change": 1.2,
+    "previousValue": 45003,
+    "previousDate": "2026-08-01",
+    "monthChange": 10.69,
+    "change": -11.4,
     "source": "ACARA",
-    "sourceUrl": "https://api.acara.org.ar/storage/documents/7e24295a-d5bd-406e-bdda-e764d1cb4351.pdf",
-    "note": "Unidades informadas para marzo de 2026; comparación mensual contra febrero de 2026 y suba interanual de 1,2%."
+    "sourceUrl": "https://parabrisas.perfil.com/noticias/mercado/ventas-de-autos-0km-septiembre-con-mejoras-y-hilux-a-la-cabeza.phtml",
+    "note": "Unidades informadas por ACARA para septiembre de 2026; comparación mensual contra agosto de 2026 y baja interanual de 11,4%."
   }
 }
