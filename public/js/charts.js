@@ -310,6 +310,51 @@ export function renderHorizontalBarChart(container, data, options) {
   `;
 }
 
+function niceTicks(min, max, count = 4) {
+  const span = max - min || Math.abs(max) || 1;
+  const raw = span / count;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((factor) => factor * magnitude).find((candidate) => candidate >= raw);
+  const ticks = [];
+  for (let value = Math.floor(min / step) * step; value <= Math.ceil(max / step) * step + step / 2; value += step) {
+    ticks.push(Number(value.toFixed(10)));
+  }
+  return ticks;
+}
+
+// Curva suave que no se pasa de los puntos (cúbica monótona, Fritsch-Carlson).
+function smoothPath(points) {
+  const dx = points.slice(1).map((point, index) => point[0] - points[index][0]);
+  const slope = points.slice(1).map((point, index) => (point[1] - points[index][1]) / dx[index]);
+  const tangent = points.map((_, index) => {
+    if (index === 0) return slope[0];
+    if (index === points.length - 1) return slope[index - 1];
+    return slope[index - 1] * slope[index] <= 0 ? 0 : (slope[index - 1] + slope[index]) / 2;
+  });
+  slope.forEach((value, index) => {
+    if (value === 0) {
+      tangent[index] = 0;
+      tangent[index + 1] = 0;
+      return;
+    }
+    const a = tangent[index] / value;
+    const b = tangent[index + 1] / value;
+    const size = a * a + b * b;
+    if (size > 9) {
+      const scale = 3 / Math.sqrt(size);
+      tangent[index] = scale * a * value;
+      tangent[index + 1] = scale * b * value;
+    }
+  });
+
+  return points.map(([x, y], index) => {
+    if (index === 0) return `M ${x.toFixed(2)} ${y.toFixed(2)}`;
+    const [prevX, prevY] = points[index - 1];
+    const third = dx[index - 1] / 3;
+    return `C ${(prevX + third).toFixed(2)} ${(prevY + tangent[index - 1] * third).toFixed(2)} ${(x - third).toFixed(2)} ${(y - tangent[index] * third).toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(" ");
+}
+
 export function renderLineChart(container, data, options) {
   const rows = data.filter((row) => Number.isFinite(Number(row[options.yKey])));
   if (rows.length < 2) {
@@ -319,35 +364,64 @@ export function renderLineChart(container, data, options) {
 
   const width = 760;
   const height = 290;
-  const margin = { top: 22, right: 18, bottom: 46, left: 64 };
+  const margin = { top: 34, right: 26, bottom: 38, left: 52 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
+  const plotBottom = margin.top + plotHeight;
   const values = rows.map((row) => Number(row[options.yKey]));
-  const rawMin = Math.min(...values);
-  const rawMax = Math.max(...values);
-  // Margen del 12% arriba y abajo para que la línea no quede pegada a los bordes
-  // y se lea la pendiente real en vez de un acantilado contra el piso.
-  const pad = (rawMax - rawMin || Math.abs(rawMax) || 1) * 0.12;
-  const minValue = rawMin - pad;
-  const maxValue = rawMax + pad;
-  const range = maxValue - minValue || 1;
-  const points = rows.map((row, index) => {
-    const x = margin.left + (index / (rows.length - 1)) * plotWidth;
-    const y = margin.top + plotHeight - ((Number(row[options.yKey]) - minValue) / range) * plotHeight;
-    return [x, y, row];
-  });
-  const path = points.map(([x, y], index) => `${index ? "L" : "M"} ${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
-  const area = `${path} L ${margin.left + plotWidth} ${margin.top + plotHeight} L ${margin.left} ${margin.top + plotHeight} Z`;
-  const first = rows[0];
-  const last = rows[rows.length - 1];
-  const plotTop = margin.top;
-  const gap = plotWidth / Math.max(1, rows.length - 1);
+  const ticks = niceTicks(Math.min(...values), Math.max(...values));
+  const minValue = ticks[0];
+  const range = ticks.at(-1) - minValue || 1;
+  const xAt = (index) => margin.left + (index / (rows.length - 1)) * plotWidth;
+  const yAt = (value) => plotBottom - ((value - minValue) / range) * plotHeight;
+  const points = rows.map((row, index) => [xAt(index), yAt(values[index]), row]);
+  const path = smoothPath(points);
+  const area = `${path} L ${points.at(-1)[0].toFixed(2)} ${plotBottom} L ${margin.left} ${plotBottom} Z`;
+  const gradientId = `${container.id || "line"}-gradient`;
+  const axisFormatter = options.axisFormatter || options.formatter;
+  const xFormatter = options.xFormatter || shortDate;
+  const lastIndex = rows.length - 1;
+  const gap = plotWidth / lastIndex;
+
+  const yAxis = ticks.map((tick) => `
+    <line x1="${margin.left}" x2="${width - margin.right}" y1="${yAt(tick).toFixed(2)}" y2="${yAt(tick).toFixed(2)}" class="grid-line"></line>
+    <text x="${margin.left - 10}" y="${(yAt(tick) + 4).toFixed(2)}" text-anchor="end" class="chart-label">${escapeSvg(axisFormatter(tick))}</text>
+  `).join("");
+
+  const labelStep = Math.ceil(rows.length / 7);
+  const xAxis = points
+    .map(([x, , row], index) => ((lastIndex - index) % labelStep === 0
+      ? `<text x="${x.toFixed(2)}" y="${height - 14}" text-anchor="middle" class="chart-label">${escapeSvg(xFormatter(row[options.xKey]))}</text>`
+      : ""))
+    .join("");
+
+  // Máximo y mínimo del período, salvo que caigan pegados al último punto, que ya
+  // lleva su propia etiqueta.
+  const maxIndex = values.indexOf(Math.max(...values));
+  const minIndex = values.indexOf(Math.min(...values));
+  const extremes = [[maxIndex, -10], [minIndex, 18]]
+    .filter(([index], position, all) => index < lastIndex - 1 && all.findIndex(([other]) => other === index) === position)
+    .map(([index, offset]) => `<text x="${points[index][0].toFixed(2)}" y="${(points[index][1] + offset).toFixed(2)}" text-anchor="middle" class="chart-label">${escapeSvg(options.formatter(values[index]))}</text>`)
+    .join("");
+
+  const nodes = points.map(([x, y], index) => (index === lastIndex
+    ? ""
+    : `<circle class="line-node" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="3" stroke="${options.color}"></circle>`)).join("");
+
+  const [lastX, lastY] = points[lastIndex];
+  const badgeText = options.formatter(values[lastIndex]);
+  const badgeWidth = badgeText.length * 7.5 + 18;
+  const badge = `
+    <circle cx="${lastX.toFixed(2)}" cy="${lastY.toFixed(2)}" r="9" fill="${options.color}" opacity="0.2"></circle>
+    <circle cx="${lastX.toFixed(2)}" cy="${lastY.toFixed(2)}" r="5" fill="${options.color}"></circle>
+    <rect x="${(lastX - badgeWidth + 8).toFixed(2)}" y="${(lastY - 36).toFixed(2)}" width="${badgeWidth.toFixed(2)}" height="22" rx="6" fill="${options.color}"></rect>
+    <text x="${(lastX - badgeWidth / 2 + 8).toFixed(2)}" y="${(lastY - 21).toFixed(2)}" text-anchor="middle" class="line-badge-text">${escapeSvg(badgeText)}</text>
+  `;
 
   // Cada punto es un grupo con una guía vertical, un punto y una zona de captura
-  // ancha. Al pasar el cursor por la franja se enciende el crosshair y el dato,
-  // que hace al gráfico mucho más fácil de leer punto a punto.
-  const interactivePoints = points.map(([x, y, row]) => {
-    const value = Number(row[options.yKey]);
+  // ancha: al pasar el cursor por la franja se enciende el crosshair y el dato.
+  const interactivePoints = points.map(([x, y, row], index) => {
+    const value = values[index];
     const label = options.xFormatter ? options.xFormatter(row[options.xKey]) : formatMonth(row[options.xKey]);
     const tooltip = options.tooltipFormatter
       ? options.tooltipFormatter(row, value)
@@ -356,26 +430,33 @@ export function renderLineChart(container, data, options) {
     const hitW = Math.max(1, Math.min(width - margin.right, x + gap / 2) - hitX);
     return `
       <g class="line-point" ${tooltipAttribute(tooltip)}>
-        <line class="line-guide" x1="${x.toFixed(2)}" x2="${x.toFixed(2)}" y1="${plotTop}" y2="${(margin.top + plotHeight).toFixed(2)}"></line>
+        <line class="line-guide" x1="${x.toFixed(2)}" x2="${x.toFixed(2)}" y1="${margin.top}" y2="${plotBottom}"></line>
         <circle class="line-dot" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="4" fill="${options.color}"></circle>
-        <rect class="line-hit" x="${hitX.toFixed(2)}" y="${plotTop}" width="${hitW.toFixed(2)}" height="${plotHeight}" fill="transparent"></rect>
+        <rect class="line-hit" x="${hitX.toFixed(2)}" y="${margin.top}" width="${hitW.toFixed(2)}" height="${plotHeight}" fill="transparent"></rect>
       </g>
     `;
   }).join("");
 
   container.innerHTML = `
     <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(options.label)}">
-      ${gridLines(width, height, margin)}
-      <path class="line-area" d="${area}" fill="${options.color}" opacity="0.12"></path>
-      <path class="line-path" pathLength="1" d="${path}" fill="none" stroke="${options.color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></path>
-      <circle cx="${points.at(-1)[0]}" cy="${points.at(-1)[1]}" r="5" fill="${options.color}"></circle>
+      <defs>
+        <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="${options.color}" stop-opacity="0.32"></stop>
+          <stop offset="1" stop-color="${options.color}" stop-opacity="0"></stop>
+        </linearGradient>
+      </defs>
+      ${yAxis}
+      <path class="line-area" d="${area}" fill="url(#${gradientId})"></path>
+      <path class="line-path" pathLength="1" d="${path}" fill="none" stroke="${options.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></path>
+      ${nodes}
+      ${extremes}
+      ${badge}
+      ${xAxis}
       ${interactivePoints}
-      <text x="${margin.left}" y="${height - 18}" class="chart-label">${escapeSvg(shortDate(first[options.xKey]))}</text>
-      <text x="${width - margin.right}" y="${height - 18}" text-anchor="end" class="chart-label">${escapeSvg(shortDate(last[options.xKey]))}</text>
-      <text x="${margin.left}" y="16" class="chart-label">${escapeSvg(options.label)}: ${escapeSvg(options.formatter(Number(last[options.yKey])))}</text>
     </svg>
   `;
 }
+
 
 export function gridLines(width, height, margin) {
   const plotHeight = height - margin.top - margin.bottom;

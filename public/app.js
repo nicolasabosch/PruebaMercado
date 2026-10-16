@@ -1,4 +1,4 @@
-import { numberFormat, timeFormat, signedPercent, formatPercent, formatPrice, formatSignedPrice, formatSignedPercentText, formatMarketPrice, formatAuctionMoney, formatUsdMillions, formatArsMillions, formatCompactNumber, formatPopulation, formatSignedCompactPopulation, formatSignedPoints, formatDate, shortDate, formatMonth, formatSemester, round, escapeHtml } from "./js/format.js";
+import { numberFormat, timeFormat, signedPercent, formatPercent, formatPrice, formatSignedPrice, formatSignedPercentText, formatMarketPrice, formatAuctionMoney, formatUsdMillions, formatArsMillions, formatCompactNumber, formatPopulation, formatSignedCompactPopulation, formatSignedPoints, formatDate, shortDate, shortMonth, formatMonth, formatSemester, round, escapeHtml } from "./js/format.js";
 import { renderDonutChart, renderPopulationPyramidOverlay, renderSignedVerticalBarChart, renderGroupedBarChart, renderTable, renderVerticalBarChart, renderHorizontalBarChart, renderLineChart } from "./js/charts.js";
 import { marketLabels, typeLabels, debtFamilyLabels, debtFamilyColors, instrumentDefinitions } from "./js/content.js";
 
@@ -814,7 +814,7 @@ function renderInflationChart(rows) {
     valueKey: "value",
     formatter: formatPercent,
     color: "#f2b84b",
-    labelFormatter: shortDate,
+    labelFormatter: shortMonth,
     maxItems: 13,
     ariaLabel: "Inflacion mensual comparada con meses previos",
     tooltipFormatter: (row, value) => {
@@ -859,6 +859,8 @@ function renderAnnualInflationChart(rows) {
     xKey: "date",
     yKey: "annual",
     formatter: formatPercent,
+    axisFormatter: (value) => `${round(value, 0)}%`,
+    xFormatter: shortMonth,
     color: "#1fc6b5",
     label: "Inflación interanual",
     tooltipFormatter: (row, value) => {
@@ -911,7 +913,7 @@ function renderMarketSection() {
   $("#moversTitle").textContent = `${marketLabels[state.selectedMarket]}: cambios diarios`;
 
   const movers = rows
-    .filter((row) => Number.isFinite(Number(row.pct_change)))
+    .filter((row) => Number.isFinite(Number(row.pct_change)) && Number(row.v) > 0)
     .sort((a, b) => Math.abs(Number(b.pct_change)) - Math.abs(Number(a.pct_change)))
     .slice(0, 12);
 

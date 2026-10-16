@@ -1504,6 +1504,17 @@ select {
   cursor: crosshair;
 }
 
+.line-node {
+  fill: var(--panel);
+  stroke-width: 2;
+}
+
+.line-badge-text {
+  fill: var(--on-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .line-guide {
   stroke: var(--teal);
   stroke-width: 1;

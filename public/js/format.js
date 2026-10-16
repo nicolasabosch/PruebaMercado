@@ -119,6 +119,13 @@ export function shortDate(value) {
   return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", timeZone: "UTC" }).format(date).replace(".", "");
 }
 
+export function shortMonth(value) {
+  if (!value) return "";
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("es-AR", { month: "short", year: "2-digit", timeZone: "UTC" }).format(date).replace(".", "");
+}
+
 export function formatMonth(value) {
   if (!value) return "--";
   const date = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
