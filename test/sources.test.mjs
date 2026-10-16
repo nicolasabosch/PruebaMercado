@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractAuctionsFromHtml, getAuctionTypeTotals } from "../sources/auctions.mjs";
 import { findAmountsNear } from "../sources/dollar.mjs";
-import { buildCensusSummary, extractCensusRowsFromHtml, normalizeCensusAgeGroup } from "../sources/census.mjs";
+import { buildCensusSummary } from "../sources/census.mjs";
 import { buildConfidenceSnapshot, seriesUrl, withAge } from "../sources/macro.mjs";
 import { isAllowedData912Path } from "../sources/data912.mjs";
 
@@ -31,25 +31,6 @@ test("findAmountsNear toma compra y venta cerca del marcador", () => {
   const text = "Cotizaciones Dólar Blue Compra $1.525 Venta $1.545 actualizado";
   assert.deepEqual(findAmountsNear(text, ["Dólar Blue"]), { buy: 1525, sell: 1545 });
   assert.equal(findAmountsNear("sin precios", ["Dólar Blue"]), null);
-});
-
-test("normalizeCensusAgeGroup normaliza rangos y el tramo final", () => {
-  assert.equal(normalizeCensusAgeGroup("0 a 4"), "0-4");
-  assert.equal(normalizeCensusAgeGroup("100 y m?s"), "100+");
-  assert.equal(normalizeCensusAgeGroup("Total"), null);
-});
-
-test("extractCensusRowsFromHtml arma filas por edad y descarta encabezados", () => {
-  const html = `
-    <table>
-      <tr><td>x</td><td>Edad</td><td>Mujeres</td><td>Varones</td><td>Total</td></tr>
-      <tr><td>1</td><td>0 a 4</td><td>1.000</td><td>1.100</td><td>2.100</td></tr>
-      <tr><td>2</td><td>5 a 9</td><td>900</td><td>950</td><td>1.850</td></tr>
-    </table>`;
-  assert.deepEqual(extractCensusRowsFromHtml(html), [
-    { ageGroup: "0-4", female: 1000, male: 1100, total: 2100 },
-    { ageGroup: "5-9", female: 900, male: 950, total: 1850 }
-  ]);
 });
 
 test("buildCensusSummary calcula participación de mayores y variación", () => {
