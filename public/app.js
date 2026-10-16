@@ -1,4 +1,9 @@
+import { numberFormat, timeFormat, signedPercent, formatPercent, formatPrice, formatSignedPrice, formatSignedPercentText, formatMarketPrice, formatAuctionMoney, formatUsdMillions, formatArsMillions, formatCompactNumber, formatPopulation, formatSignedCompactPopulation, formatSignedPoints, formatDate, shortDate, formatMonth, formatSemester, round, escapeHtml } from "./js/format.js";
+import { renderDonutChart, renderPopulationPyramidOverlay, renderSignedVerticalBarChart, renderGroupedBarChart, renderTable, renderVerticalBarChart, renderHorizontalBarChart, renderLineChart } from "./js/charts.js";
+import { marketLabels, typeLabels, debtFamilyLabels, debtFamilyColors, instrumentDefinitions } from "./js/content.js";
+
 const $ = (selector) => document.querySelector(selector);
+
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 const state = {
@@ -12,97 +17,6 @@ const state = {
   selectedExplorer: "arg_bonds",
   errors: []
 };
-
-const marketLabels = {
-  arg_stocks: "Acciones argentinas",
-  arg_cedears: "CEDEARs",
-  arg_bonds: "Bonos soberanos y provinciales",
-  arg_notes: "Letras y notes",
-  arg_options: "Opciones"
-};
-
-const typeLabels = {
-  lecap: "Tasa fija",
-  cer: "CER",
-  tamar: "TAMAR",
-  dual: "Dual",
-  dolar_linked: "Dólar linked",
-  hard_dollar: "Dólar hard",
-  otros: "Otros"
-};
-
-const typeColors = {
-  lecap: "#2f6fb2",
-  cer: "#d89a00",
-  tamar: "#7b4aae",
-  dual: "#bf3b3b",
-  dolar_linked: "#007f79",
-  hard_dollar: "#18825c",
-  otros: "#66717a"
-};
-
-const debtFamilyLabels = {
-  fixed_rate: "Tasa fija",
-  inflation: "Ajusta por inflación",
-  floating_rate: "Tasa variable",
-  dual: "Dual o mixta",
-  dollar_linked: "Atada al dólar oficial",
-  hard_dollar: "En dólares",
-  other: "Otros"
-};
-
-const debtFamilyColors = {
-  fixed_rate: "#4aa3ff",
-  inflation: "#f2b84b",
-  floating_rate: "#a982ff",
-  dual: "#ff6b6b",
-  dollar_linked: "#1fc6b5",
-  hard_dollar: "#4ad080",
-  other: "#8a98a6"
-};
-
-const instrumentDefinitions = {
-  lecap: {
-    title: "LECAP",
-    short: "Letra capitalizable en pesos",
-    text: "Paga una tasa fija implícita y capitaliza intereses hasta el vencimiento. Es la parte más simple de leer: se sabe la tasa en pesos desde el inicio."
-  },
-  cer: {
-    title: "CER",
-    short: "Ajusta por inflación",
-    text: "El capital se actualiza por CER, que sigue al IPC. Protege contra inflación, aunque el precio también se mueve por tasas y expectativas."
-  },
-  tamar: {
-    title: "TAMAR",
-    short: "Tasa variable bancaria",
-    text: "Paga una tasa que cambia con una referencia mayorista bancaria. Sirve cuando el mercado no quiere quedar clavado en una tasa fija."
-  },
-  dual: {
-    title: "Dual",
-    short: "Combina coberturas",
-    text: "Suele pagar según la mejor de dos referencias definidas en la emisión, por ejemplo inflación o tipo de cambio. Es una forma de comprar seguro contra escenarios distintos."
-  },
-  dolar_linked: {
-    title: "Dólar linked",
-    short: "Paga en pesos, sigue dólar oficial",
-    text: "No entrega dólares: paga pesos ajustados por la evolución del tipo de cambio oficial. Se usa para cubrir riesgo de devaluación oficial."
-  },
-  hard_dollar: {
-    title: "Bono hard dollar",
-    short: "Deuda en dólares",
-    text: "El flujo está denominado en dólares. Para el Tesoro implica compromiso en moneda dura y para el inversor cambia el riesgo principal."
-  },
-  otros: {
-    title: "Otros",
-    short: "Instrumentos no clasificados",
-    text: "Agrupa instrumentos que no entran en las familias anteriores o que llegan con poca información de clasificación."
-  }
-};
-
-const numberFormat = new Intl.NumberFormat("es-AR");
-const compactFormat = new Intl.NumberFormat("es-AR", { notation: "compact", maximumFractionDigits: 1 });
-const dateFormat = new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
-const timeFormat = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" });
 
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
@@ -142,7 +56,10 @@ function updateThemeButton(theme) {
 function bindEvents() {
   $("#themeToggle")?.addEventListener("click", toggleTheme);
   $("#refreshButton").addEventListener("click", loadAllData);
-  window.addEventListener("hashchange", applyRoute);
+  window.addEventListener("hashchange", () => {
+    applyRoute();
+    track(() => loadPage(currentPage()));
+  });
 
   $$("[data-help]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -179,9 +96,13 @@ function initRoute() {
   applyRoute();
 }
 
-function applyRoute() {
+function currentPage() {
   const validPages = new Set($$(".page-section").map((section) => section.id));
-  const page = validPages.has(location.hash.slice(1)) ? location.hash.slice(1) : "inicio";
+  return validPages.has(location.hash.slice(1)) ? location.hash.slice(1) : "inicio";
+}
+
+function applyRoute() {
+  const page = currentPage();
 
   $$(".page-section").forEach((section) => {
     const isActive = section.id === page;
@@ -231,27 +152,34 @@ function positionChartTooltip(event, tooltip) {
   tooltip.style.top = `${Math.max(margin, y)}px`;
 }
 
-async function loadAllData() {
-  setStatus("Consultando Data912 y licitaciones...", "loading");
-  state.errors = [];
-  setRefreshLoading(true);
+const baseLiveKeys = ["mep", "arg_stocks", "arg_cedears", "arg_bonds"];
 
-  // Cada bloque resuelve y pinta su propia sección apenas llega el dato, así la
-  // página deja de quedar bloqueada esperando a la fuente más lenta (el censo).
-  const tasks = [
-    (async () => {
-      await Promise.allSettled([
-        loadLive("mep"),
-        loadLive("ccl"),
-        loadLive("arg_stocks"),
-        loadLive("arg_cedears"),
-        loadLive("arg_bonds"),
-        loadLive("arg_notes")
-      ]);
+// Datos que sólo hacen falta al entrar a cada página. El resto (licitaciones,
+// dólares y mercado en vivo) alimenta el inicio y se carga siempre.
+const pageLoaders = {
+  macro: () => loadSection(fetchMacro, "macro", renderMacro),
+  censo: () => loadSection(fetchCensus, "census", renderCensus),
+  mercado: () => loadSection(() => fetchData912("eod/volatilities/GGAL"), "risk", renderRisk)
+};
+const loadedPages = new Set();
+let pending = 0;
+
+async function loadAllData() {
+  state.errors = [];
+  state.live = {};
+  loadedPages.clear();
+  await Promise.allSettled([track(loadBase), track(() => loadPage(currentPage()))]);
+}
+
+async function loadBase() {
+  // Cada bloque pinta su propia sección apenas llega el dato, así la página no
+  // espera a la fuente más lenta.
+  await Promise.allSettled([
+    loadLive(baseLiveKeys).then(() => {
       renderDashboard();
       renderMarketSection();
       renderExplorer();
-    })(),
+    }),
     loadSection(fetchAuctions, "auctions", () => {
       renderAuctions();
       renderDashboard();
@@ -259,14 +187,30 @@ async function loadAllData() {
     loadSection(fetchDollarQuotes, "dollarQuotes", () => {
       renderDollars();
       renderDashboard();
-    }),
-    loadSection(fetchMacro, "macro", renderMacro),
-    loadSection(fetchCensus, "census", renderCensus),
-    loadSection(() => fetchData912("eod/volatilities/GGAL"), "risk", renderRisk)
-  ];
+    })
+  ]);
+}
 
-  await Promise.allSettled(tasks);
+async function loadPage(page) {
+  const loader = pageLoaders[page];
+  if (!loader || loadedPages.has(page)) return;
+  loadedPages.add(page);
+  await loader();
+}
 
+async function track(task) {
+  pending += 1;
+  setStatus("Consultando datos...", "loading");
+  setRefreshLoading(true);
+  try {
+    await task();
+  } finally {
+    pending -= 1;
+    if (!pending) finishLoading();
+  }
+}
+
+function finishLoading() {
   if (state.errors.length) {
     setStatus("Listo con algunas fuentes caídas", "error");
   } else {
@@ -277,9 +221,18 @@ async function loadAllData() {
   refreshIcons();
 }
 
-async function loadLive(key) {
+// Pide varios mercados de Data912 en una sola request; los que ya están cargados no se repiten.
+async function loadLive(keys) {
+  const missing = keys.filter((key) => !state.live[key]?.length);
+  if (!missing.length) return;
   try {
-    state.live[key] = normalizeRows(await fetchData912(`live/${key}`));
+    const response = await fetch(`/api/live?keys=${missing.join(",")}`);
+    if (!response.ok) throw new Error("No se pudo cargar Data912");
+    const payload = await response.json();
+    for (const key of missing) {
+      if (payload.data[key]) state.live[key] = normalizeRows(payload.data[key]);
+      else state.errors.push(payload.errors[key] || `No se pudo cargar ${key}`);
+    }
   } catch (error) {
     state.errors.push(error.message);
   }
@@ -332,12 +285,7 @@ async function fetchCensus() {
 }
 
 async function ensureMarketData(key) {
-  if (state.live[key]?.length) return;
-  try {
-    state.live[key] = normalizeRows(await fetchData912(`live/${key}`));
-  } catch (error) {
-    state.errors.push(error.message);
-  }
+  await loadLive([key]);
 }
 
 function normalizeRows(value) {
@@ -435,7 +383,7 @@ function renderAuctions() {
   }
 
   const summaryCards = [
-    { label: "Fecha", value: formatDate(latest.date), note: "Último resultado encontrado." },
+    { label: "Fecha", value: formatDate(latest.date), note: payload.isFallback ? "Dato de respaldo: no se pudo leer licitaciones.ar." : "Último resultado encontrado." },
     { label: "Adjudicado", value: formatAuctionMoney(latest.totalAdjudicatedARS), note: "Monto aceptado por el Tesoro." },
     { label: "Ofertado", value: formatAuctionMoney(latest.totalOfferedARS), note: "Demanda presentada por inversores." },
     { label: "Rollover", value: formatPercent(latest.rolloverPercent), note: plainRollover(latest.rolloverPercent) }
@@ -523,32 +471,6 @@ function mapTypeToDebtFamily(type) {
   if (type === "dolar_linked") return "dollar_linked";
   if (type === "hard_dollar") return "hard_dollar";
   return "other";
-}
-
-function renderDonutChart(slices, { centerTop, centerBottom }) {
-  const radius = 38;
-  const circumference = 2 * Math.PI * radius;
-  let offset = 0;
-  const circles = slices.map((slice) => {
-    const length = Math.max(0, (slice.percent / 100) * circumference);
-    const dash = `${length.toFixed(2)} ${(circumference - length).toFixed(2)}`;
-    const tooltip = `<strong>${escapeHtml(debtFamilyLabels[slice.family] || slice.family)}</strong><span>${escapeHtml(formatPercent(slice.percent))}</span><span>${escapeHtml(formatAuctionMoney(slice.value))}</span>`;
-    const circle = `
-      <circle class="chart-hotspot donut-seg" ${tooltipAttribute(tooltip)} cx="50" cy="50" r="${radius}" fill="none" stroke="${slice.color}" stroke-width="13"
-        stroke-dasharray="${dash}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 50 50)"></circle>
-    `;
-    offset += length;
-    return circle;
-  }).join("");
-
-  return `
-    <svg class="donut-chart" viewBox="0 0 100 100" role="img" aria-label="Composición adjudicada por tipo de deuda">
-      <circle cx="50" cy="50" r="${radius}" fill="none" stroke="currentColor" stroke-width="13" opacity="0.1"></circle>
-      ${circles}
-      <text x="50" y="47" text-anchor="middle" class="donut-center-top">${escapeSvg(centerTop)}</text>
-      <text x="50" y="58" text-anchor="middle" class="donut-center-bottom">${escapeSvg(centerBottom)}</text>
-    </svg>
-  `;
 }
 
 function renderLatestAuctionExplanation(latest, isLatest = true) {
@@ -730,14 +652,16 @@ function renderMacro() {
       value: formatPercent(indigence?.value),
       detail: indigence ? `Personas bajo línea de indigencia, ${formatSemester(indigence.date)}.` : "Dato de informe INDEC.",
       explain: "Es una medición más extrema que pobreza: mira si el ingreso alcanza para cubrir una canasta básica alimentaria.",
-      source: indigence?.sourceUrl
+      source: indigence?.sourceUrl,
+      staleLabel: indigence?.stale ? `Dato de ${formatSemester(indigence.date)}, puede estar desactualizado` : ""
     },
     {
       title: "Patentamientos",
       value: cars?.value ? numberFormat.format(cars.value) : "--",
       detail: cars ? `Autos 0 km en ${formatMonth(cars.date)}; ${formatSignedPercentText(cars.monthChange)} mensual y ${formatSignedPercentText(cars.change)} interanual.` : "Sin dato reciente.",
-      explain: cars ? `Es la cantidad de autos nuevos inscriptos. Contra febrero de 2026 (${numberFormat.format(cars.previousValue)} unidades), marzo mostró una suba mensual de ${formatSignedPercentText(cars.monthChange)}.` : "Mide cuántos autos 0 km se registran: sirve como termómetro de consumo durable.",
-      source: cars?.sourceUrl
+      explain: cars ? `Es la cantidad de autos nuevos inscriptos. Contra ${formatMonth(cars.previousDate)} (${numberFormat.format(cars.previousValue)} unidades), ${formatMonth(cars.date)} mostró una variación mensual de ${formatSignedPercentText(cars.monthChange)}.` : "Mide cuántos autos 0 km se registran: sirve como termómetro de consumo durable.",
+      source: cars?.sourceUrl,
+      staleLabel: cars?.stale ? `Dato de ${formatMonth(cars.date)}, puede estar desactualizado` : ""
     },
     {
       title: "Confianza consumidor",
@@ -768,6 +692,7 @@ function renderMacro() {
       <strong>${escapeHtml(card.value)}</strong>
       <p>${escapeHtml(card.detail)}</p>
       <p class="card-explain">${escapeHtml(card.explain)}</p>
+      ${card.staleLabel ? `<span class="kpi-trend tone-warning">${escapeHtml(card.staleLabel)}</span>` : ""}
       ${card.source ? `<a class="source-link" href="${escapeHtml(card.source)}" target="_blank" rel="noreferrer">Fuente</a>` : ""}
     </article>
   `).join("");
@@ -847,140 +772,32 @@ function renderCensus() {
     </article>
   `;
 
-  $("#censusNarrative").innerHTML = `
+  const shares = summary.shares;
+  const trend = (delta, up, down) => (delta > 0 ? up : delta < 0 ? down : "se mantuvo igual");
+  const narrative = [
+    {
+      title: "Cómo cambió la forma",
+      text: `Los chicos de 0 a 14 años pasaron de ${formatPercent(shares.children.previous)} a ${formatPercent(shares.children.current)} de la población (${formatSignedPoints(shares.children.delta)}): la base ${trend(shares.children.delta, "se ensanchó", "se achicó")}. Eso suele reflejar cómo evolucionan los nacimientos y el envejecimiento.`
+    },
+    {
+      title: "Peso en edades altas",
+      text: `Los mayores de 65 pasaron de ${formatPercent(shares.older.previous)} a ${formatPercent(shares.older.current)} (${formatSignedPoints(shares.older.delta)}): la parte alta ${trend(shares.older.delta, "ganó", "perdió")} participación. Las edades de 15 a 64 son hoy ${formatPercent(shares.workingAge.current)} del total.`
+    },
+    {
+      title: "Diferencia por sexo en edades altas",
+      text: `Entre los mayores de 65, las mujeres son ${formatPercent(shares.olderFemale.current)} (en 2010: ${formatPercent(shares.olderFemale.previous)}), algo habitual cuando la esperanza de vida de las mujeres supera a la de los varones.`
+    },
+    {
+      title: "Fuente y alcance",
+      text: `El último censo sale del cuadro oficial de INDEC en Redatam y la comparación 2010 del cuadro nacional del censo anterior.${census.warning ? " Ahora se muestran datos de respaldo para 2022 porque no se pudo consultar Redatam." : ""} Sirve para ver la estructura de la población, no para sacar conclusiones financieras.`
+    }
+  ];
+  $("#censusNarrative").innerHTML = narrative.map((item) => `
     <article>
-      <strong>Como cambio la forma</strong>
-      <p>La base se achico: hay menos peso relativo de chicos de 0 a 14 anos que en 2010. Eso suele pasar cuando bajan los nacimientos y la poblacion envejece.</p>
+      <strong>${escapeHtml(item.title)}</strong>
+      <p>${escapeHtml(item.text)}</p>
     </article>
-    <article>
-      <strong>Mas peso en edades altas</strong>
-      <p>La parte de 65 anos o mas gano participacion. En una lectura simple, Argentina tiene una piramide menos triangular y mas parecida a una columna en las edades medias.</p>
-    </article>
-    <article>
-      <strong>Diferencia por sexo en edades altas</strong>
-      <p>En ambos censos se ve una mayor presencia femenina en los tramos mas altos, algo habitual cuando la esperanza de vida de las mujeres supera a la de los varones.</p>
-    </article>
-    <article>
-      <strong>Fuente y alcance</strong>
-      <p>El ultimo censo sale del cuadro oficial de INDEC en Redatam y la comparacion 2010 del cuadro nacional del censo anterior. Sirve para ver la estructura de la poblacion, no para sacar conclusiones financieras.</p>
-    </article>
-  `;
-}
-
-function renderPopulationPyramid(rows, year, color) {
-  const cleanRows = [...rows].sort((a, b) => ageGroupStart(a.ageGroup) - ageGroupStart(b.ageGroup));
-  const width = 520;
-  const rowHeight = 16;
-  const gap = 4;
-  const margin = { top: 42, right: 58, bottom: 18, left: 58 };
-  const centerGap = 20;
-  const height = margin.top + margin.bottom + cleanRows.length * (rowHeight + gap);
-  const plotWidth = width - margin.left - margin.right - centerGap;
-  const halfWidth = plotWidth / 2;
-  const centerX = margin.left + halfWidth;
-  const maxValue = Math.max(...cleanRows.flatMap((row) => [Number(row.male || 0), Number(row.female || 0)]), 1);
-  const ticks = [maxValue / 2, maxValue];
-
-  const bars = cleanRows.map((row, index) => {
-    const y = margin.top + index * (rowHeight + gap);
-    const maleWidth = (Number(row.male || 0) / maxValue) * (halfWidth - 12);
-    const femaleWidth = (Number(row.female || 0) / maxValue) * (halfWidth - 12);
-    const maleTooltip = `<strong>${escapeHtml(year)} · ${escapeHtml(row.ageGroup)}</strong><span>Varones: ${escapeHtml(numberFormat.format(row.male))}</span><span>Total grupo: ${escapeHtml(numberFormat.format(row.total))}</span>`;
-    const femaleTooltip = `<strong>${escapeHtml(year)} · ${escapeHtml(row.ageGroup)}</strong><span>Mujeres: ${escapeHtml(numberFormat.format(row.female))}</span><span>Total grupo: ${escapeHtml(numberFormat.format(row.total))}</span>`;
-    return `
-      <text x="${centerX - 10}" y="${y + 11.5}" text-anchor="end" class="chart-label">${escapeSvg(row.ageGroup)}</text>
-      <rect class="chart-hotspot" ${tooltipAttribute(maleTooltip)} x="${centerX - maleWidth}" y="${y}" width="${maleWidth}" height="${rowHeight}" rx="4" fill="${color}" opacity="0.88"></rect>
-      <rect class="chart-hotspot" ${tooltipAttribute(femaleTooltip)} x="${centerX + centerGap}" y="${y}" width="${femaleWidth}" height="${rowHeight}" rx="4" fill="${color}" opacity="0.48"></rect>
-    `;
-  }).join("");
-
-  const tickLines = ticks.map((tick) => {
-    const span = (tick / maxValue) * (halfWidth - 12);
-    return `
-      <line x1="${centerX - span}" x2="${centerX - span}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="grid-line"></line>
-      <line x1="${centerX + centerGap + span}" x2="${centerX + centerGap + span}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="grid-line"></line>
-      <text x="${centerX - span}" y="${margin.top - 16}" text-anchor="middle" class="chart-label">${escapeSvg(formatPopulationTick(tick))}</text>
-      <text x="${centerX + centerGap + span}" y="${margin.top - 16}" text-anchor="middle" class="chart-label">${escapeSvg(formatPopulationTick(tick))}</text>
-    `;
-  }).join("");
-
-  return `
-    <div class="pyramid-wrap">
-      <svg class="chart-svg pyramid-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Piramide poblacional ${escapeHtml(year)}">
-        <text x="${centerX - halfWidth / 2}" y="18" text-anchor="middle" class="chart-label">Varones</text>
-        <text x="${centerX + centerGap + halfWidth / 2}" y="18" text-anchor="middle" class="chart-label">Mujeres</text>
-        <line x1="${centerX}" x2="${centerX}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="axis-line"></line>
-        <line x1="${centerX + centerGap}" x2="${centerX + centerGap}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="axis-line"></line>
-        ${tickLines}
-        ${bars}
-      </svg>
-      <p class="chart-help visible">Izquierda: varones. Derecha: mujeres. Las barras mas anchas muestran grupos de edad con mas peso dentro de la poblacion.</p>
-    </div>
-  `;
-}
-
-function renderPopulationPyramidOverlay(previousRows, currentRows, previousYear, currentYear) {
-  const previousByAge = new Map(previousRows.map((row) => [row.ageGroup, row]));
-  const currentByAge = new Map(currentRows.map((row) => [row.ageGroup, row]));
-  const ageGroups = [...new Set([...previousByAge.keys(), ...currentByAge.keys()])]
-    .sort((a, b) => ageGroupStart(a) - ageGroupStart(b));
-  const rows = ageGroups.map((ageGroup) => ({
-    ageGroup,
-    previous: previousByAge.get(ageGroup) || { male: 0, female: 0, total: 0 },
-    current: currentByAge.get(ageGroup) || { male: 0, female: 0, total: 0 }
-  }));
-
-  const width = 760;
-  const rowHeight = 16;
-  const gap = 5;
-  const margin = { top: 50, right: 78, bottom: 28, left: 78 };
-  const centerGap = 26;
-  const height = margin.top + margin.bottom + rows.length * (rowHeight + gap);
-  const plotWidth = width - margin.left - margin.right - centerGap;
-  const halfWidth = plotWidth / 2;
-  const centerX = margin.left + halfWidth;
-  const maxValue = Math.max(...rows.flatMap((row) => [
-    Number(row.previous.male || 0),
-    Number(row.previous.female || 0),
-    Number(row.current.male || 0),
-    Number(row.current.female || 0)
-  ]), 1);
-  const scale = (value) => (Number(value || 0) / maxValue) * (halfWidth - 14);
-
-  const bars = rows.map((row, index) => {
-    const y = margin.top + index * (rowHeight + gap);
-    const prevMaleWidth = scale(row.previous.male);
-    const prevFemaleWidth = scale(row.previous.female);
-    const currentMaleWidth = scale(row.current.male);
-    const currentFemaleWidth = scale(row.current.female);
-    const deltaTotal = Number(row.current.total || 0) - Number(row.previous.total || 0);
-    const tooltip = `<strong>${escapeHtml(row.ageGroup)}</strong><span>${escapeHtml(previousYear)}: ${escapeHtml(numberFormat.format(row.previous.total || 0))}</span><span>${escapeHtml(currentYear)}: ${escapeHtml(numberFormat.format(row.current.total || 0))}</span><span>Cambio: ${escapeHtml(formatSignedCompactPopulation(deltaTotal))}</span>`;
-    return `
-      <text x="${centerX - 10}" y="${y + 12}" text-anchor="end" class="chart-label">${escapeSvg(row.ageGroup)}</text>
-      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${centerX - prevMaleWidth}" y="${y}" width="${prevMaleWidth}" height="${rowHeight}" rx="4" fill="#4aa3ff" opacity="0.25"></rect>
-      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${centerX + centerGap}" y="${y}" width="${prevFemaleWidth}" height="${rowHeight}" rx="4" fill="#4aa3ff" opacity="0.25"></rect>
-      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${centerX - currentMaleWidth}" y="${y + 3}" width="${currentMaleWidth}" height="${rowHeight - 6}" rx="4" fill="#1fc6b5" opacity="0.92"></rect>
-      <rect class="chart-hotspot" ${tooltipAttribute(tooltip)} x="${centerX + centerGap}" y="${y + 3}" width="${currentFemaleWidth}" height="${rowHeight - 6}" rx="4" fill="#1fc6b5" opacity="0.62"></rect>
-    `;
-  }).join("");
-
-  return `
-    <div class="pyramid-wrap">
-      <svg class="chart-svg pyramid-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Piramide poblacional superpuesta ${escapeHtml(previousYear)} y ${escapeHtml(currentYear)}">
-        <text x="${centerX - halfWidth / 2}" y="18" text-anchor="middle" class="chart-label">Varones</text>
-        <text x="${centerX + centerGap + halfWidth / 2}" y="18" text-anchor="middle" class="chart-label">Mujeres</text>
-        <rect x="${margin.left}" y="28" width="10" height="10" rx="3" fill="#4aa3ff" opacity="0.35"></rect>
-        <text x="${margin.left + 16}" y="37" class="chart-label">${escapeSvg(previousYear)}</text>
-        <rect x="${margin.left + 78}" y="28" width="10" height="10" rx="3" fill="#1fc6b5" opacity="0.92"></rect>
-        <text x="${margin.left + 94}" y="37" class="chart-label">${escapeSvg(currentYear)}</text>
-        <line x1="${centerX}" x2="${centerX}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="axis-line"></line>
-        <line x1="${centerX + centerGap}" x2="${centerX + centerGap}" y1="${margin.top - 8}" y2="${height - margin.bottom}" class="axis-line"></line>
-        ${gridLines(width, height, margin)}
-        ${bars}
-      </svg>
-      <p class="chart-help visible">Azul claro: ${escapeHtml(previousYear)}. Verde: ${escapeHtml(currentYear)}. Si el verde sobresale, ese grupo creció; si queda adentro, perdió peso o cantidad.</p>
-    </div>
-  `;
+  `).join("");
 }
 
 function renderInflationChart(rows) {
@@ -1057,47 +874,6 @@ function renderAnnualInflationChart(rows) {
   $("#inflationAnnualNarrative").textContent = `La inflación interanual estimada fue ${formatPercent(last.annual)} en ${formatMonth(last.date)} y ${direction} ${formatSignedPoints(last.annual - previous.annual)} contra el mes anterior.`;
 }
 
-function renderSignedVerticalBarChart(container, data, options) {
-  const rows = data.filter((row) => Number.isFinite(Number(row[options.valueKey])));
-  if (!rows.length) {
-    container.innerHTML = `<div class="empty-state">No hay datos suficientes para graficar.</div>`;
-    return;
-  }
-
-  const width = 760;
-  const height = 290;
-  const margin = { top: 24, right: 18, bottom: 54, left: 56 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
-  const maxAbs = Math.max(...rows.map((row) => Math.abs(Number(row[options.valueKey]))), 1) * 1.18;
-  const zeroY = margin.top + plotHeight / 2;
-  const step = plotWidth / rows.length;
-  const barWidth = Math.max(8, step * 0.58);
-
-  const bars = rows.map((row, index) => {
-    const value = Number(row[options.valueKey]);
-    const heightValue = Math.max(2, (Math.abs(value) / maxAbs) * (plotHeight / 2 - 8));
-    const x = margin.left + index * step + (step - barWidth) / 2;
-    const y = value >= 0 ? zeroY - heightValue : zeroY;
-    const label = options.labelFormatter ? options.labelFormatter(row) : row.date;
-    const tooltip = options.tooltipFormatter
-      ? options.tooltipFormatter(row, value)
-      : `<strong>${escapeHtml(formatMonth(row.date))}</strong><span>${escapeHtml(options.formatter(value))}</span>`;
-    return `
-      <rect class="chart-hotspot bar-fade" style="animation-delay:${index * 35}ms" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="5" fill="${value >= 0 ? "#4ad080" : "#ff6b6b"}"></rect>
-      <text x="${x + barWidth / 2}" y="${height - 28}" text-anchor="middle" class="chart-label">${escapeSvg(shortText(label, 8))}</text>
-    `;
-  }).join("");
-
-  container.innerHTML = `
-    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Balanza comercial mensual">
-      ${gridLines(width, height, margin)}
-      <line x1="${margin.left}" x2="${width - margin.right}" y1="${zeroY}" y2="${zeroY}" class="axis-line"></line>
-      ${bars}
-    </svg>
-  `;
-}
-
 function renderFiscalChart(primaryRows, financialRows) {
   const byDate = new Map();
   for (const row of primaryRows) {
@@ -1128,59 +904,6 @@ function renderFiscalChart(primaryRows, financialRows) {
     formatter: (value) => `${round(value / 1000000, 2)} B`,
     labelFormatter: shortDate
   });
-}
-
-function renderGroupedBarChart(container, data, options) {
-  const rows = data.filter((row) => options.series.some((serie) => Number.isFinite(Number(row[serie.key]))));
-  if (!rows.length) {
-    container.innerHTML = `<div class="empty-state">No hay datos suficientes para graficar.</div>`;
-    return;
-  }
-
-  const width = 760;
-  const height = 290;
-  const margin = { top: 26, right: 18, bottom: 56, left: 58 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
-  const values = rows.flatMap((row) => options.series.map((serie) => Number(row[serie.key])).filter(Number.isFinite));
-  const maxAbs = Math.max(...values.map((value) => Math.abs(value)), 1) * 1.18;
-  const zeroY = margin.top + plotHeight / 2;
-  const groupStep = plotWidth / rows.length;
-  const barWidth = Math.max(5, groupStep / (options.series.length + 1.8));
-
-  const bars = rows.map((row, index) => {
-    const groupX = margin.left + index * groupStep + groupStep / 2;
-    const label = options.labelFormatter ? options.labelFormatter(row.date) : row.date;
-    const seriesBars = options.series.map((serie, serieIndex) => {
-      const value = Number(row[serie.key]);
-      if (!Number.isFinite(value)) return "";
-      const heightValue = Math.max(2, (Math.abs(value) / maxAbs) * (plotHeight / 2 - 8));
-      const x = groupX + (serieIndex - (options.series.length - 1) / 2) * (barWidth + 3) - barWidth / 2;
-      const y = value >= 0 ? zeroY - heightValue : zeroY;
-      const tooltip = `<strong>${escapeHtml(formatMonth(row.date))}</strong><span>${escapeHtml(serie.label)}: ${escapeHtml(options.formatter(value))}</span>`;
-      return `
-        <rect class="chart-hotspot bar-fade" style="animation-delay:${index * 35}ms" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${heightValue}" rx="4" fill="${serie.color}"></rect>
-      `;
-    }).join("");
-    return `
-      ${seriesBars}
-      <text x="${groupX}" y="${height - 28}" text-anchor="middle" class="chart-label">${escapeSvg(shortText(label, 7))}</text>
-    `;
-  }).join("");
-
-  const legend = options.series.map((serie, index) => `
-    <rect x="${margin.left + index * 112}" y="9" width="10" height="10" rx="3" fill="${serie.color}"></rect>
-    <text x="${margin.left + 16 + index * 112}" y="18" class="chart-label">${escapeSvg(serie.label)}</text>
-  `).join("");
-
-  container.innerHTML = `
-    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Resultado primario y financiero">
-      ${gridLines(width, height, margin)}
-      <line x1="${margin.left}" x2="${width - margin.right}" y1="${zeroY}" y2="${zeroY}" class="axis-line"></line>
-      ${legend}
-      ${bars}
-    </svg>
-  `;
 }
 
 function renderMarketSection() {
@@ -1330,206 +1053,6 @@ function renderGuide() {
   `).join("");
 }
 
-function renderTable(container, rows, columns) {
-  if (!rows.length) {
-    container.innerHTML = `<div class="empty-state">No hay datos para mostrar.</div>`;
-    return;
-  }
-
-  const headers = columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("");
-  const body = rows.map((row) => `
-    <tr>${columns.map((column) => `<td>${column.value(row)}</td>`).join("")}</tr>
-  `).join("");
-
-  container.innerHTML = `<table><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table>`;
-}
-
-function renderVerticalBarChart(container, data, options) {
-  const rows = data.filter((row) => Number.isFinite(Number(row[options.valueKey]))).slice(0, options.maxItems || 18);
-  if (!rows.length) {
-    container.innerHTML = `<div class="empty-state">No hay datos suficientes para graficar.</div>`;
-    return;
-  }
-
-  const width = 760;
-  const height = 290;
-  const margin = { top: 22, right: 18, bottom: 54, left: 54 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
-  const values = rows.map((row) => Number(row[options.valueKey]));
-  const maxValue = Math.max(...values, options.targetLine || 0) * 1.16 || 1;
-  const step = plotWidth / rows.length;
-  const barWidth = Math.max(8, step * 0.58);
-
-  const bars = rows.map((row, index) => {
-    const value = Number(row[options.valueKey]);
-    const barHeight = (value / maxValue) * plotHeight;
-    const x = margin.left + index * step + (step - barWidth) / 2;
-    const y = margin.top + plotHeight - barHeight;
-    const label = options.labelFormatter ? options.labelFormatter(row[options.labelKey]) : row[options.labelKey];
-    const color = typeof options.color === "function" ? options.color(row) : options.color;
-    const tooltip = options.tooltipFormatter
-      ? options.tooltipFormatter(row, value)
-      : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(options.formatter(value))}</span>`;
-    return `
-      <rect class="chart-hotspot bar-v" style="animation-delay:${index * 35}ms" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="5" fill="${color || "#007f79"}"></rect>
-      <text x="${x + barWidth / 2}" y="${height - 28}" text-anchor="middle" class="chart-label">${escapeSvg(shortText(label, 9))}</text>
-      <text x="${x + barWidth / 2}" y="${Math.max(14, y - 7)}" text-anchor="middle" class="chart-label value-label">${escapeSvg(options.formatter(value))}</text>
-    `;
-  }).join("");
-
-  const target = options.targetLine
-    ? (() => {
-        const y = margin.top + plotHeight - (options.targetLine / maxValue) * plotHeight;
-        return `
-          <line x1="${margin.left}" x2="${width - margin.right}" y1="${y}" y2="${y}" stroke="#bf3b3b" stroke-dasharray="5 5"></line>
-          <text x="${width - margin.right}" y="${y - 6}" text-anchor="end" class="chart-label">100%</text>
-        `;
-      })()
-    : "";
-
-  container.innerHTML = `
-    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(options.ariaLabel || "Gráfico de barras")}">
-      ${gridLines(width, height, margin)}
-      ${target}
-      ${bars}
-    </svg>
-  `;
-}
-
-function renderHorizontalBarChart(container, data, options) {
-  const rows = data.filter((row) => Number.isFinite(Number(row[options.valueKey]))).slice(0, 14);
-  if (!rows.length) {
-    container.innerHTML = `<div class="empty-state">No hay datos suficientes para graficar.</div>`;
-    return;
-  }
-
-  const width = 760;
-  const rowHeight = 26;
-  const margin = { top: 18, right: 70, bottom: 18, left: 92 };
-  const height = margin.top + margin.bottom + rows.length * rowHeight;
-  const plotWidth = width - margin.left - margin.right;
-  const zeroX = margin.left + plotWidth / 2;
-  const maxAbs = Math.max(...rows.map((row) => Math.abs(Number(row[options.valueKey]))), 1);
-  const maxBar = Math.max(8, plotWidth / 2 - 8);
-
-  const bars = rows.map((row, index) => {
-    const value = Number(row[options.valueKey]);
-    const y = margin.top + index * rowHeight + 5;
-    const length = Math.max(2, (Math.abs(value) / maxAbs) * maxBar);
-    const isPositive = value >= 0;
-    const x = isPositive ? zeroX : zeroX - length;
-    const color = isPositive ? "#18825c" : "#bf3b3b";
-    const label = row[options.labelKey];
-    const valueText = options.formatter(value);
-    // Si la barra es larga, el % va DENTRO (texto blanco) para no acercarse al
-    // ticker. Si es corta, va afuera junto al tip, pero ahí la barra queda cerca
-    // del centro, así que tampoco toca el nombre. De este modo nunca se pisan.
-    const estLabelWidth = valueText.length * 7 + 10;
-    const inside = length > estLabelWidth;
-    let textX;
-    let anchor;
-    if (isPositive) {
-      textX = inside ? x + length - 8 : x + length + 6;
-      anchor = inside ? "end" : "start";
-    } else {
-      textX = inside ? x + 8 : x - 6;
-      anchor = inside ? "start" : "end";
-    }
-    const labelClass = inside ? "value-label value-label-inside" : "value-label";
-    const tooltip = options.tooltipFormatter
-      ? options.tooltipFormatter(row, value)
-      : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(valueText)}</span>`;
-    return `
-      <text x="${margin.left - 10}" y="${y + 12}" text-anchor="end" class="chart-label">${escapeSvg(shortText(label, 10))}</text>
-      <rect class="chart-hotspot bar-h" style="transform-origin:${isPositive ? "left" : "right"} center;animation-delay:${index * 35}ms" ${tooltipAttribute(tooltip)} x="${x}" y="${y}" width="${length}" height="16" rx="5" fill="${color}"></rect>
-      <text x="${textX}" y="${y + 12}" text-anchor="${anchor}" class="chart-label ${labelClass}">${escapeSvg(valueText)}</text>
-    `;
-  }).join("");
-
-  container.innerHTML = `
-    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfico de cambios positivos y negativos">
-      <line x1="${zeroX}" x2="${zeroX}" y1="${margin.top}" y2="${height - margin.bottom}" class="axis-line"></line>
-      ${bars}
-    </svg>
-  `;
-}
-
-function renderLineChart(container, data, options) {
-  const rows = data.filter((row) => Number.isFinite(Number(row[options.yKey])));
-  if (rows.length < 2) {
-    container.innerHTML = `<div class="empty-state">No hay suficientes puntos para graficar.</div>`;
-    return;
-  }
-
-  const width = 760;
-  const height = 290;
-  const margin = { top: 22, right: 18, bottom: 46, left: 64 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
-  const values = rows.map((row) => Number(row[options.yKey]));
-  const rawMin = Math.min(...values);
-  const rawMax = Math.max(...values);
-  // Margen del 12% arriba y abajo para que la línea no quede pegada a los bordes
-  // y se lea la pendiente real en vez de un acantilado contra el piso.
-  const pad = (rawMax - rawMin || Math.abs(rawMax) || 1) * 0.12;
-  const minValue = rawMin - pad;
-  const maxValue = rawMax + pad;
-  const range = maxValue - minValue || 1;
-  const points = rows.map((row, index) => {
-    const x = margin.left + (index / (rows.length - 1)) * plotWidth;
-    const y = margin.top + plotHeight - ((Number(row[options.yKey]) - minValue) / range) * plotHeight;
-    return [x, y, row];
-  });
-  const path = points.map(([x, y], index) => `${index ? "L" : "M"} ${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
-  const area = `${path} L ${margin.left + plotWidth} ${margin.top + plotHeight} L ${margin.left} ${margin.top + plotHeight} Z`;
-  const first = rows[0];
-  const last = rows[rows.length - 1];
-  const plotTop = margin.top;
-  const gap = plotWidth / Math.max(1, rows.length - 1);
-
-  // Cada punto es un grupo con una guía vertical, un punto y una zona de captura
-  // ancha. Al pasar el cursor por la franja se enciende el crosshair y el dato,
-  // que hace al gráfico mucho más fácil de leer punto a punto.
-  const interactivePoints = points.map(([x, y, row]) => {
-    const value = Number(row[options.yKey]);
-    const label = options.xFormatter ? options.xFormatter(row[options.xKey]) : formatMonth(row[options.xKey]);
-    const tooltip = options.tooltipFormatter
-      ? options.tooltipFormatter(row, value)
-      : `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(options.label)}: ${escapeHtml(options.formatter(value))}</span>`;
-    const hitX = Math.max(margin.left, x - gap / 2);
-    const hitW = Math.max(1, Math.min(width - margin.right, x + gap / 2) - hitX);
-    return `
-      <g class="line-point" ${tooltipAttribute(tooltip)}>
-        <line class="line-guide" x1="${x.toFixed(2)}" x2="${x.toFixed(2)}" y1="${plotTop}" y2="${(margin.top + plotHeight).toFixed(2)}"></line>
-        <circle class="line-dot" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="4" fill="${options.color}"></circle>
-        <rect class="line-hit" x="${hitX.toFixed(2)}" y="${plotTop}" width="${hitW.toFixed(2)}" height="${plotHeight}" fill="transparent"></rect>
-      </g>
-    `;
-  }).join("");
-
-  container.innerHTML = `
-    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(options.label)}">
-      ${gridLines(width, height, margin)}
-      <path class="line-area" d="${area}" fill="${options.color}" opacity="0.12"></path>
-      <path class="line-path" pathLength="1" d="${path}" fill="none" stroke="${options.color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></path>
-      <circle cx="${points.at(-1)[0]}" cy="${points.at(-1)[1]}" r="5" fill="${options.color}"></circle>
-      ${interactivePoints}
-      <text x="${margin.left}" y="${height - 18}" class="chart-label">${escapeSvg(shortDate(first[options.xKey]))}</text>
-      <text x="${width - margin.right}" y="${height - 18}" text-anchor="end" class="chart-label">${escapeSvg(shortDate(last[options.xKey]))}</text>
-      <text x="${margin.left}" y="16" class="chart-label">${escapeSvg(options.label)}: ${escapeSvg(options.formatter(Number(last[options.yKey])))}</text>
-    </svg>
-  `;
-}
-
-function gridLines(width, height, margin) {
-  const plotHeight = height - margin.top - margin.bottom;
-  return [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-    const y = margin.top + plotHeight * ratio;
-    return `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y}" y2="${y}" class="grid-line"></line>`;
-  }).join("");
-}
-
 function cleanDollarRows(rows, valueKey, weightKey) {
   return normalizeRows(rows).filter((row) => {
     const value = Number(row[valueKey]);
@@ -1575,135 +1098,6 @@ function toneValue(value, tone) {
   return `<span class="${css}">${escapeHtml(value)}</span>`;
 }
 
-function signedPercent(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return `<span class="neutral">--</span>`;
-  const css = numeric > 0 ? "positive" : numeric < 0 ? "negative" : "neutral";
-  const sign = numeric > 0 ? "+" : "";
-  return `<span class="${css}">${sign}${round(numeric, 2)}%</span>`;
-}
-
-function formatPercent(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  return `${round(numeric, Math.abs(numeric) >= 10 ? 1 : 2)}%`;
-}
-
-function formatPrice(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  return `$${numberFormat.format(Math.round(numeric))}`;
-}
-
-function formatSignedPrice(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  const sign = numeric > 0 ? "+" : "";
-  return `${sign}$${numberFormat.format(Math.round(numeric))}`;
-}
-
-function formatSignedPercentText(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  const sign = numeric > 0 ? "+" : "";
-  return `${sign}${formatPercent(numeric)}`;
-}
-
-function formatMarketPrice(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  if (Math.abs(numeric) < 10) return numeric.toLocaleString("es-AR", { maximumFractionDigits: 4 });
-  if (Math.abs(numeric) < 1000) return numeric.toLocaleString("es-AR", { maximumFractionDigits: 2 });
-  return numberFormat.format(Math.round(numeric));
-}
-
-function formatAuctionMoney(valueInMillions) {
-  const numeric = Number(valueInMillions);
-  if (!Number.isFinite(numeric)) return "--";
-  if (numeric >= 1000000) return `$${round(numeric / 1000000, 2)} billones`;
-  if (numeric >= 1000) return `$${round(numeric / 1000, 1)} mil millones`;
-  return `$${numberFormat.format(Math.round(numeric))} millones`;
-}
-
-function formatUsdMillions(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  const sign = numeric < 0 ? "-" : "";
-  return `${sign}US$${numberFormat.format(Math.abs(Math.round(numeric)))} M`;
-}
-
-function formatArsMillions(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  const sign = numeric < 0 ? "-" : "";
-  const abs = Math.abs(numeric);
-  if (abs >= 1000000) return `${sign}$${round(abs / 1000000, 2)} B`;
-  return `${sign}$${numberFormat.format(Math.round(abs))} M`;
-}
-
-function formatCompactNumber(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  return compactFormat.format(numeric);
-}
-
-function formatPopulation(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  if (numeric >= 1000000) return `${round(numeric / 1000000, 1)} M`;
-  return numberFormat.format(Math.round(numeric));
-}
-
-function formatSignedCompactPopulation(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  const sign = numeric > 0 ? "+" : numeric < 0 ? "-" : "";
-  const abs = Math.abs(numeric);
-  if (abs >= 1000000) return `${sign}${round(abs / 1000000, 1)} M`;
-  return `${sign}${numberFormat.format(Math.round(abs))}`;
-}
-
-function formatSignedPoints(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  const sign = numeric > 0 ? "+" : "";
-  return `${sign}${round(numeric, 1)} p.p.`;
-}
-
-function formatPopulationTick(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  return numeric >= 1000000 ? `${round(numeric / 1000000, 1)} M` : `${round(numeric / 1000, 0)} k`;
-}
-
-function formatDate(value) {
-  if (!value) return "--";
-  return dateFormat.format(new Date(`${value}T00:00:00Z`)).replace(".", "");
-}
-
-function shortDate(value) {
-  if (!value) return "";
-  const date = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", timeZone: "UTC" }).format(date).replace(".", "");
-}
-
-function formatMonth(value) {
-  if (!value) return "--";
-  const date = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric", timeZone: "UTC" }).format(date);
-}
-
-function formatSemester(value) {
-  if (!value) return "--";
-  const date = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return String(value);
-  const month = date.getUTCMonth() + 1;
-  const semester = month <= 6 ? "1er semestre" : "2do semestre";
-  return `${semester} ${date.getUTCFullYear()}`;
-}
-
 function getTicker(row) {
   return String(row.symbol || row.ticker || row.ticker_ar || row.ticker_usa || "--").toUpperCase();
 }
@@ -1736,43 +1130,6 @@ function plainRollover(value) {
   if (numeric >= 100) return "alcanzó para cubrir los pagos y sumar aire financiero.";
   if (numeric >= 75) return "cubrió una parte importante, pero no todo.";
   return "quedó corto frente a los pagos que vencían.";
-}
-
-function shortText(value, length) {
-  const text = String(value || "");
-  return text.length > length ? `${text.slice(0, Math.max(1, length - 1))}…` : text;
-}
-
-function ageGroupStart(ageGroup) {
-  const text = String(ageGroup || "");
-  if (text.endsWith("+")) return Number(text.replace("+", ""));
-  return Number(text.split("-")[0]);
-}
-
-function round(value, digits = 1) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "--";
-  return numeric.toLocaleString("es-AR", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits
-  });
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function escapeSvg(value) {
-  return escapeHtml(value);
-}
-
-function tooltipAttribute(html) {
-  return `data-tooltip="${escapeHtml(html)}"`;
 }
 
 function refreshIcons() {

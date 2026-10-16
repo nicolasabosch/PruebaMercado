@@ -1,0 +1,128 @@
+[
+  {
+    "ageGroup": "0-4",
+    "female": 1639680,
+    "male": 1697972,
+    "total": 3337652
+  },
+  {
+    "ageGroup": "5-9",
+    "female": 1663467,
+    "male": 1717752,
+    "total": 3381219
+  },
+  {
+    "ageGroup": "10-14",
+    "female": 1724074,
+    "male": 1779372,
+    "total": 3503446
+  },
+  {
+    "ageGroup": "15-19",
+    "female": 1757006,
+    "male": 1785061,
+    "total": 3542067
+  },
+  {
+    "ageGroup": "20-24",
+    "female": 1651693,
+    "male": 1648456,
+    "total": 3300149
+  },
+  {
+    "ageGroup": "25-29",
+    "female": 1578403,
+    "male": 1552106,
+    "total": 3130509
+  },
+  {
+    "ageGroup": "30-34",
+    "female": 1575371,
+    "male": 1523342,
+    "total": 3098713
+  },
+  {
+    "ageGroup": "35-39",
+    "female": 1366907,
+    "male": 1311528,
+    "total": 2678435
+  },
+  {
+    "ageGroup": "40-44",
+    "female": 1184888,
+    "male": 1125887,
+    "total": 2310775
+  },
+  {
+    "ageGroup": "45-49",
+    "female": 1128882,
+    "male": 1067468,
+    "total": 2196350
+  },
+  {
+    "ageGroup": "50-54",
+    "female": 1056797,
+    "male": 986196,
+    "total": 2042993
+  },
+  {
+    "ageGroup": "55-59",
+    "female": 975380,
+    "male": 893570,
+    "total": 1868950
+  },
+  {
+    "ageGroup": "60-64",
+    "female": 860276,
+    "male": 760914,
+    "total": 1621190
+  },
+  {
+    "ageGroup": "65-69",
+    "female": 704492,
+    "male": 588569,
+    "total": 1293061
+  },
+  {
+    "ageGroup": "70-74",
+    "female": 577459,
+    "male": 438438,
+    "total": 1015897
+  },
+  {
+    "ageGroup": "75-79",
+    "female": 480178,
+    "male": 321481,
+    "total": 801659
+  },
+  {
+    "ageGroup": "80-84",
+    "female": 365172,
+    "male": 200744,
+    "total": 565916
+  },
+  {
+    "ageGroup": "85-89",
+    "female": 205489,
+    "male": 92848,
+    "total": 298337
+  },
+  {
+    "ageGroup": "90-94",
+    "female": 76234,
+    "male": 26574,
+    "total": 102808
+  },
+  {
+    "ageGroup": "95-99",
+    "female": 18779,
+    "male": 4704,
+    "total": 23483
+  },
+  {
+    "ageGroup": "100+",
+    "female": 2703,
+    "male": 784,
+    "total": 3487
+  }
+]

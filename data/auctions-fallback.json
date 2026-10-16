@@ -1,0 +1,70 @@
+[
+  {
+    "id": "2026-04-28",
+    "date": "2026-04-28",
+    "totalOffers": 3735,
+    "totalOfferedARS": 9188472,
+    "totalAdjudicatedARS": 8109066,
+    "maturityAmountARS": 7938587,
+    "rolloverPercent": 102.15,
+    "instruments": [
+      {
+        "ticker": "S12J6",
+        "type": "lecap",
+        "currency": "ARS",
+        "maturityDate": "2026-06-12",
+        "effectiveValue": 4937002,
+        "tirea": 28.32
+      },
+      {
+        "ticker": "TZXS8",
+        "type": "cer",
+        "currency": "ARS",
+        "maturityDate": "2028-09-29",
+        "effectiveValue": 1036517,
+        "tirea": 8.41
+      },
+      {
+        "ticker": "TMG28",
+        "type": "tamar",
+        "currency": "ARS",
+        "maturityDate": "2028-08-31",
+        "effectiveValue": 1026517,
+        "tirea": 33.61
+      },
+      {
+        "ticker": "TXMJ9",
+        "type": "dual",
+        "currency": "ARS",
+        "maturityDate": "2029-06-29",
+        "effectiveValue": 949186,
+        "tirea": 7.31
+      },
+      {
+        "ticker": "D30S6",
+        "type": "dolar_linked",
+        "currency": "ARS",
+        "maturityDate": "2026-09-30",
+        "effectiveValue": 159843,
+        "tirea": 2.52
+      },
+      {
+        "ticker": "AO27",
+        "type": "hard_dollar",
+        "currency": "USD",
+        "maturityDate": "2027-10-29",
+        "effectiveValue": 355,
+        "tirea": 5.16
+      },
+      {
+        "ticker": "AO28",
+        "type": "hard_dollar",
+        "currency": "USD",
+        "maturityDate": "2028-10-31",
+        "effectiveValue": 331,
+        "tirea": 8.77
+      }
+    ],
+    "conversions": []
+  }
+]
