@@ -10,15 +10,15 @@
   },
   "cars": {
     "label": "Patentamientos autos 0 km",
-    "value": 49814,
-    "date": "2026-09-01",
+    "value": 45965,
+    "date": "2026-10-01",
     "maxAgeDays": 75,
-    "previousValue": 45003,
-    "previousDate": "2026-08-01",
-    "monthChange": 10.69,
-    "change": -11.4,
+    "previousValue": 50207,
+    "previousDate": "2026-09-01",
+    "monthChange": -8.4,
+    "change": -12,
     "source": "ACARA",
-    "sourceUrl": "https://parabrisas.perfil.com/noticias/mercado/ventas-de-autos-0km-septiembre-con-mejoras-y-hilux-a-la-cabeza.phtml",
-    "note": "Unidades informadas por ACARA para septiembre de 2026; comparación mensual contra agosto de 2026 y baja interanual de 11,4%."
+    "sourceUrl": "https://parabrisas.perfil.com/noticias/autos/patentamientos-de-octubre-2026-cayo-el-mercado-automotor-y-la-toyota-hilux-volvio-a-liderar-el-ranking.phtml",
+    "note": "Unidades informadas por ACARA para octubre de 2026; baja mensual de 8,4% contra septiembre de 2026 (50.207, cifra revisada) y baja interanual de 12%."
   }
 }
